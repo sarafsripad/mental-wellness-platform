@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mental-wellness-platform/contracts/voice-feature-schema/v1.0.0",
+  "title": "VoiceFeatureRecord",
+  "description": "Pseudonymous voice-derived acoustic feature record. Direct identifiers (name, phone, location, device ID) must never appear in this document. Features are acoustic measurements only — not clinical interpretations.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "session_id",
+    "language_tag",
+    "feature_set_id",
+    "extraction_version",
+    "audio_quality",
+    "consent_reference",
+    "features",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version. Must match the $id version."
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Pseudonymous session identifier. Must not contain or be reversible to a direct identifier without an authorised decryption key held separately from this record. Format: sess_ followed by 32 lowercase hex characters.",
+      "pattern": "^sess_[a-f0-9]{32}$"
+    },
+    "language_tag": {
+      "type": "string",
+      "description": "BCP-47 language tag for the session language (e.g., hi-IN, ta-IN, te-IN, en-IN).",
+      "pattern": "^[a-z]{2,3}(-[A-Z]{2,3})?$",
+      "examples": ["hi-IN", "ta-IN", "te-IN", "mr-IN", "kn-IN", "en-IN"]
+    },
+    "feature_set_id": {
+      "type": "string",
+      "description": "Identifier of the openSMILE feature set configuration used for extraction. Format: config filename without extension, followed by underscore and version tag.",
+      "examples": ["emobase_v1", "ComParE_2016_v1", "eGeMAPS_v02"]
+    },
+    "extraction_version": {
+      "type": "string",
+      "description": "SemVer version of the extraction pipeline that produced this record.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "examples": ["1.0.0", "1.1.0"]
+    },
+    "audio_quality": {
+      "type": "object",
+      "description": "Audio quality assessment results from both device-side pre-screening and server-side validation.",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["PASS", "DEGRADED", "FAIL"],
+          "description": "Overall audio quality gate result. FAIL records must not be used for feature extraction or model training."
+        },
+        "snr_db": {
+          "type": ["number", "null"],
+          "description": "Estimated signal-to-noise ratio in decibels. Null if measurement was not possible."
+        },
+        "duration_seconds": {
+          "type": ["number", "null"],
+          "description": "Recording duration in seconds.",
+          "minimum": 0
+        },
+        "peak_dbfs": {
+          "type": ["number", "null"],
+          "description": "Peak level in dBFS. Values near 0 indicate clipping risk.",
+          "maximum": 0
+        },
+        "flags": {
+          "type": "array",
+          "description": "List of quality warning flags (e.g., CLIPPING, LOW_LEVEL, SHORT_DURATION, HIGH_NOISE).",
+          "items": {
+            "type": "string",
+            "enum": ["CLIPPING", "LOW_LEVEL", "SHORT_DURATION", "LONG_DURATION", "HIGH_NOISE", "SILENCE", "FORMAT_MISMATCH"]
+          },
+          "uniqueItems": true,
+          "default": []
+        },
+        "degraded_reason": {
+          "type": ["string", "null"],
+          "description": "Required if status is DEGRADED. Human-readable justification for using a degraded recording."
+        }
+      },
+      "if": {
+        "properties": { "status": { "const": "DEGRADED" } }
+      },
+      "then": {
+        "required": ["degraded_reason"]
+      }
+    },
+    "consent_reference": {
+      "type": "object",
+      "description": "Reference to the recorded consent event authorising use of this recording. Must not be fabricated or defaulted.",
+      "required": ["consent_event_id", "permitted_purposes"],
+      "additionalProperties": false,
+      "properties": {
+        "consent_event_id": {
+          "type": "string",
+          "description": "Immutable identifier of the consent event record in the consent service. Must be resolvable — not a placeholder.",
+          "pattern": "^ce_[a-f0-9]{32}$"
+        },
+        "permitted_purposes": {
+          "type": "array",
+          "description": "Purposes explicitly granted by the participant. Only listed purposes are authorised for this record.",
+          "items": {
+            "type": "string",
+            "enum": ["RESEARCH_ONLY", "CLINICAL_SUPPORT", "MODEL_TRAINING", "QUALITY_REVIEW"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "consent_version": {
+          "type": "string",
+          "description": "Version of the consent form presented to the participant."
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "description": "Map of acoustic feature name to numeric value. Feature names are openSMILE functional names — they must not be renamed to clinical labels. Null values indicate the feature could not be computed.",
+      "additionalProperties": {
+        "type": ["number", "null"]
+      },
+      "minProperties": 1
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Non-identifying provenance metadata for quality and lineage tracking.",
+      "required": ["recorded_at_utc", "capture_device_class"],
+      "additionalProperties": false,
+      "properties": {
+        "recorded_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp of when the recording was captured."
+        },
+        "capture_device_class": {
+          "type": "string",
+          "enum": ["MOBILE_APP", "TABLET", "FIELD_RECORDER", "UNKNOWN"],
+          "description": "Class of device used for capture. Not a device identifier."
+        },
+        "pipeline_run_id": {
+          "type": ["string", "null"],
+          "description": "Identifier of the extraction pipeline run that produced this record. Useful for batch-level debugging."
+        },
+        "opensmile_version": {
+          "type": ["string", "null"],
+          "description": "openSMILE library version used for extraction.",
+          "examples": ["3.0.2"]
+        }
+      }
+    }
+  },
+  "x-changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-17",
+      "changes": "Initial schema version."
+    }
+  ],
+  "x-governance": {
+    "direct_identifiers_prohibited": true,
+    "clinical_labels_prohibited_in_features": true,
+    "consent_reference_required": true,
+    "note": "This schema governs pseudonymous acoustic feature records only. The mapping from session_id to participant identity is held in a separate identity service and requires authorised access."
+  }
+}

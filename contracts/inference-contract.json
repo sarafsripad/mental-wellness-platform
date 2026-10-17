@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mental-wellness-platform/contracts/inference-contract/v1.0.0",
+  "title": "InferenceContract",
+  "description": "Request and response contract for voice-based decision-support inference. Results are indicators for clinical decision support only — never autonomous diagnoses. A human clinician must interpret all results.",
+  "version": "1.0.0",
+  "definitions": {
+    "InferenceRequest": {
+      "$anchor": "InferenceRequest",
+      "type": "object",
+      "description": "Request payload for a voice-based inference call.",
+      "required": [
+        "request_id",
+        "schema_version",
+        "session_id",
+        "model_version",
+        "task",
+        "feature_set_id",
+        "extraction_version",
+        "consent_reference",
+        "features"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "description": "Client-generated idempotency key for this inference request. UUID v4 format.",
+          "format": "uuid"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "1.0.0"
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Pseudonymous session identifier. Same format as voice-feature-schema.json.",
+          "pattern": "^sess_[a-f0-9]{32}$"
+        },
+        "model_version": {
+          "type": "string",
+          "description": "SemVer version of the model to use for inference. Must match a deployed model version.",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "task": {
+          "type": "string",
+          "description": "The inference task identifier. Must be a supported task registered for the requested model version.",
+          "enum": [
+            "WELLNESS_SCREENING",
+            "SPEECH_QUALITY_ASSESSMENT",
+            "LANGUAGE_IDENTIFICATION"
+          ]
+        },
+        "feature_set_id": {
+          "type": "string",
+          "description": "Feature set identifier, must match what the requested model version expects."
+        },
+        "extraction_version": {
+          "type": "string",
+          "description": "Extraction pipeline version that produced the features.",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "consent_reference": {
+          "type": "object",
+          "required": ["consent_event_id", "permitted_purposes"],
+          "additionalProperties": false,
+          "properties": {
+            "consent_event_id": {
+              "type": "string",
+              "pattern": "^ce_[a-f0-9]{32}$"
+            },
+            "permitted_purposes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["RESEARCH_ONLY", "CLINICAL_SUPPORT", "MODEL_TRAINING", "QUALITY_REVIEW"]
+              },
+              "minItems": 1
+            }
+          }
+        },
+        "features": {
+          "type": "object",
+          "description": "Acoustic feature map. Must conform to what the requested model_version and feature_set_id expect.",
+          "additionalProperties": {
+            "type": ["number", "null"]
+          },
+          "minProperties": 1
+        }
+      }
+    },
+    "InferenceResponse": {
+      "$anchor": "InferenceResponse",
+      "type": "object",
+      "description": "Response payload from a voice-based inference call.",
+      "required": [
+        "request_id",
+        "schema_version",
+        "session_id",
+        "model_version",
+        "task",
+        "result_status",
+        "result_is_not_a_diagnosis",
+        "limitations",
+        "responded_at_utc"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "description": "Echo of the request_id for idempotency verification.",
+          "format": "uuid"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "1.0.0"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^sess_[a-f0-9]{32}$"
+        },
+        "model_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "task": {
+          "type": "string",
+          "enum": [
+            "WELLNESS_SCREENING",
+            "SPEECH_QUALITY_ASSESSMENT",
+            "LANGUAGE_IDENTIFICATION"
+          ]
+        },
+        "result_status": {
+          "type": "string",
+          "enum": ["SUCCESS", "LOW_CONFIDENCE", "INSUFFICIENT_QUALITY", "UNSUPPORTED_TASK", "ERROR"],
+          "description": "Status of the inference computation. LOW_CONFIDENCE means a result was produced but uncertainty is high."
+        },
+        "result_is_not_a_diagnosis": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true. This field is a machine-readable assertion that this result is a decision-support indicator, not a clinical diagnosis. Must never be false or omitted."
+        },
+        "indicator": {
+          "type": ["object", "null"],
+          "description": "The inference output. Present only when result_status is SUCCESS or LOW_CONFIDENCE. Null otherwise.",
+          "properties": {
+            "label": {
+              "type": "string",
+              "description": "The indicator label produced by the model. This is a research indicator, not a clinical diagnosis."
+            },
+            "confidence": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Model confidence score in [0, 1]. Null if the model does not produce calibrated probabilities."
+            },
+            "uncertainty_note": {
+              "type": ["string", "null"],
+              "description": "Human-readable note about uncertainty or confidence limitations for this result."
+            }
+          },
+          "required": ["label"],
+          "additionalProperties": false
+        },
+        "limitations": {
+          "type": "array",
+          "description": "One or more documented limitations of this model and result. Must not be empty. Omitting limitations is not permitted.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "examples": [
+            ["This model has not been validated in a prospective clinical study.", "Performance may vary across languages and recording conditions not represented in the training data.", "Results must be reviewed by a qualified clinician before any clinical decision is made."]
+          ]
+        },
+        "error": {
+          "type": ["object", "null"],
+          "description": "Error details. Present only when result_status is ERROR.",
+          "properties": {
+            "code": { "type": "string" },
+            "message": {
+              "type": "string",
+              "description": "Error message. Must not include participant data or internal stack traces."
+            }
+          },
+          "required": ["code", "message"],
+          "additionalProperties": false
+        },
+        "responded_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp of when the response was generated."
+        }
+      }
+    }
+  },
+  "x-changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-10-17",
+      "changes": "Initial contract version. Defines WELLNESS_SCREENING, SPEECH_QUALITY_ASSESSMENT, and LANGUAGE_IDENTIFICATION tasks."
+    }
+  ],
+  "x-governance": {
+    "result_is_not_a_diagnosis_is_immutable": true,
+    "limitations_field_required": true,
+    "clinical_autonomy_prohibited": true,
+    "note": "No consuming application may present an inference result as a clinical diagnosis. The limitations array must be surfaced to any human reviewer."
+  }
+}
