@@ -89,8 +89,8 @@ Each step is one reviewable pull request. Steps marked 🔒 touch voice recordin
 
 | Step | Deliverable | Done when |
 |---|---|---|
-| **S0** Toolchain and CI | Install Java 21 locally. `requirements-dev.txt`. CI runs `check-secrets.sh`, `validate-contracts.sh` and `validate-examples.py` | CI green on `main` |
-| **S1** Contract tests | `tests/contracts/` pytest that wraps the example validation, plus tests for consent scope dependency rules expressed as fixtures | `pytest tests/contracts` green locally and in CI |
+| **S0** Toolchain and CI ✅ CI done 2026-10-17 (`.github/workflows/ci.yml`); Java 21 (21.0.12) installed with JAVA_HOME set | Install Java 21 locally. `requirements-dev.txt`. CI runs `check-secrets.sh`, `validate-contracts.sh` and `validate-examples.py` | CI green on `main` |
+| **S1** Contract tests ✅ done 2026-10-17 (`tests/contracts/`, 284 tests) | `tests/contracts/` pytest that wraps the example validation, plus tests for consent scope dependency rules expressed as fixtures | `pytest tests/contracts` green locally and in CI |
 | **S2** Local environment | `deploy/local/docker-compose.yml` (postgres with `app_db` + `identity_db`, minio with encryption, keycloak realm with synthetic users and the worker client) | `docker compose up` healthy; README in `deploy/local/` |
 | **S3** API skeleton | Spring Boot app, module structure, Flyway baseline, OIDC resource server, correlation-ID filter, problem+json handler, audit module, ArchUnit/Modulith boundary tests | Health endpoint secured; boundary tests pass |
 | **S4** 🔒 Consent module | `POST /v1/consent-events`, withdrawals, consent status, `requireScopes()`, dependency and cascade rules, adult-only and `data_origin` guards | Consent-path tests: granted / missing / withdrawn / expired-placeholder × each scope; approval recorded |

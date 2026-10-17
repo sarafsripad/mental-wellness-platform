@@ -9,10 +9,19 @@
 
 set -uo pipefail
 
-# Determine what to scan: prefer git diff for uncommitted changes
+# Determine what to scan: prefer git diff for uncommitted changes.
+# In CI, set SCAN_BASE to a commit (e.g. the PR base) to scan everything
+# committed since that commit as well.
 if git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
   # Scan staged + unstaged changes against HEAD
   SCAN_CONTENT="$(git diff HEAD 2>/dev/null || git diff 2>/dev/null || true)"
+  if [[ -n "${SCAN_BASE:-}" ]]; then
+    if ! git rev-parse --verify --quiet "${SCAN_BASE}^{commit}" >/dev/null; then
+      echo "  SECRET [ERROR] SCAN_BASE '${SCAN_BASE}' is not a known commit" >&2
+      exit 2
+    fi
+    SCAN_CONTENT+=$'\n'"$(git diff "${SCAN_BASE}...HEAD" 2>/dev/null || true)"
+  fi
   # Also scan untracked (not ignored) text files, which git diff does not show
   while IFS= read -r -d '' f; do
     if [[ -f "$f" ]] && grep -Iq . "$f" 2>/dev/null; then

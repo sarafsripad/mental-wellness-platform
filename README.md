@@ -121,6 +121,14 @@ bash scripts/lint-check.sh           # Runs whichever linters are configured (ad
 
 Run `validate-contracts.sh` and `validate-examples.py` before merging any change to `contracts/`.
 
+### Contract tests
+
+```bash
+python3 -m pytest tests/contracts -q
+```
+
+The suite covers the feature-record schema (privacy and clinical-safety rules), the OpenAPI contracts (structure, examples, auth and audit policy), consistency between contracts, and the hook scripts themselves. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs it with all the checks above on every push to `main` and every pull request.
+
 ---
 
 ## Claude Code Harness

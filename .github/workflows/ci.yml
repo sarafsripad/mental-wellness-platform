@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Contracts and harness checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needed so the secret scan can diff against the base commit
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dev requirements
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Secret scan (changes in this push or pull request)
+        env:
+          # PR: scan everything since the base branch. Push: scan since the previous tip.
+          # A brand-new branch has an all-zero "before", so fall back to the first commit.
+          SCAN_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: |
+          if [ -z "$SCAN_BASE" ] || [ "$SCAN_BASE" = "0000000000000000000000000000000000000000" ]; then
+            SCAN_BASE="$(git rev-list --max-parents=0 HEAD | tail -1)"
+          fi
+          export SCAN_BASE
+          bash scripts/check-secrets.sh
+
+      - name: Contract validation
+        run: bash scripts/validate-contracts.sh
+
+      - name: Example and OpenAPI validation
+        run: python scripts/validate-examples.py
+
+      - name: Contract test suite
+        run: python -m pytest tests/contracts -q
+
+      - name: Lint (advisory)
+        run: bash scripts/lint-check.sh
