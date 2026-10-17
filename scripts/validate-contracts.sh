@@ -52,11 +52,11 @@ with open('$f') as fh:
 
 issues = []
 
-# Check $schema declaration
+# Check \$schema declaration
 if '\$schema' not in schema:
     issues.append("missing \$schema declaration")
 
-# Check $id contains version
+# Check \$id contains version
 if '\$id' in schema and '/v' not in schema['\$id']:
     issues.append("\$id does not contain a version segment (expected /vX.Y.Z)")
 
