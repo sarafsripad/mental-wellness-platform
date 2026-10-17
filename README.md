@@ -65,6 +65,8 @@ docs/
   research/              # Model validation plan and spec, experiment log
 scripts/                 # Deterministic, non-destructive validation scripts
 requirements-dev.txt     # Pinned tooling for contract validation (not used at runtime)
+deploy/local/            # Docker Compose dev environment (Postgres, storage, Keycloak)
+tests/contracts/         # Contract and hook-script test suite
 workstream-a/            # Application source (planned)
 workstream-b/            # Research source (planned)
 ```
@@ -120,6 +122,14 @@ bash scripts/lint-check.sh           # Runs whichever linters are configured (ad
 ```
 
 Run `validate-contracts.sh` and `validate-examples.py` before merging any change to `contracts/`.
+
+### Local environment
+
+```bash
+cd deploy/local && ./init-env.sh && ./up.sh && ./verify.sh
+```
+
+This starts PostgreSQL, encrypted S3-compatible storage (SeaweedFS) and Keycloak on `127.0.0.1` with generated secrets and synthetic users. See [deploy/local/README.md](deploy/local/README.md).
 
 ### Contract tests
 

@@ -90,7 +90,7 @@ Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means 
 2. S3-compatible object storage for audio, with metadata, checksum and object key in PostgreSQL.
 3. Files on the API server's filesystem.
 
-**Decision.** Option 2: MinIO locally, and a managed S3-compatible service in production.
+**Decision.** Option 2: SeaweedFS locally, and a managed S3-compatible service in production. (*Amended 2026-10-17:* the draft named MinIO for local use, but MinIO no longer publishes freely pullable container images. SeaweedFS 4.47 was checked for S3 API compatibility, default SSE-S3 encryption with no plaintext on disk, lifecycle expiry, and per-key bucket restrictions. The application only depends on the S3 API, so the local choice can change without code changes.)
 
 **Rationale.**
 - Keeps the database small and backups fast.

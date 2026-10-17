@@ -47,7 +47,7 @@ workstream-a/
     worker/ (claim loop, QC, extract, build record, validate, submit)
   mobile/                               # React Native + TypeScript, minimal "test recording" flow
 deploy/local/
-  docker-compose.yml                    # postgres, minio, keycloak, wellness-api, processing-worker
+  docker-compose.yml                    # postgres, storage (SeaweedFS), keycloak; wellness-api and worker added later
   keycloak/wellness-local-realm.json    # synthetic test users only
 workstream-b/
   research-pipeline/                    # Python: export ingest + contract validation + summary report
@@ -91,10 +91,10 @@ Each step is one reviewable pull request. Steps marked 🔒 touch voice recordin
 |---|---|---|
 | **S0** Toolchain and CI ✅ CI done 2026-10-17 (`.github/workflows/ci.yml`); Java 21 (21.0.12) installed with JAVA_HOME set | Install Java 21 locally. `requirements-dev.txt`. CI runs `check-secrets.sh`, `validate-contracts.sh` and `validate-examples.py` | CI green on `main` |
 | **S1** Contract tests ✅ done 2026-10-17 (`tests/contracts/`, 284 tests) | `tests/contracts/` pytest that wraps the example validation, plus tests for consent scope dependency rules expressed as fixtures | `pytest tests/contracts` green locally and in CI |
-| **S2** Local environment | `deploy/local/docker-compose.yml` (postgres with `app_db` + `identity_db`, minio with encryption, keycloak realm with synthetic users and the worker client) | `docker compose up` healthy; README in `deploy/local/` |
+| **S2** Local environment ✅ done 2026-10-17 (`deploy/local/`, `verify.sh` 32 checks) | `deploy/local/docker-compose.yml` (postgres with `app_db` + `identity_db`, S3-compatible storage with encryption, keycloak realm with synthetic users and the worker client) | `docker compose up` healthy; README in `deploy/local/` |
 | **S3** API skeleton | Spring Boot app, module structure, Flyway baseline, OIDC resource server, correlation-ID filter, problem+json handler, audit module, ArchUnit/Modulith boundary tests | Health endpoint secured; boundary tests pass |
 | **S4** 🔒 Consent module | `POST /v1/consent-events`, withdrawals, consent status, `requireScopes()`, dependency and cascade rules, adult-only and `data_origin` guards | Consent-path tests: granted / missing / withdrawn / expired-placeholder × each scope; approval recorded |
-| **S5** 🔒 Voice session and upload | Sessions, recording metadata, content upload to MinIO with checksum, consent re-check, idempotency store | Testcontainers integration tests (Postgres + MinIO); audio never appears in logs (log-capture test) |
+| **S5** 🔒 Voice session and upload | Sessions, recording metadata, content upload to object storage with checksum, consent re-check, idempotency store | Testcontainers integration tests (Postgres + S3-compatible storage); audio never appears in logs (log-capture test) |
 | **S6** Processing queue and internal API | `POST/GET /v1/processing-jobs`; claim/lease (`SKIP LOCKED`), audio fetch, result intake with schema validation, failure, lease sweeper, cancellation on withdrawal | Concurrency test (two claimers, one job); rejects an invalid record; withdrawal cancels a queued job |
 | **S7** 🔒 Processing worker | Python worker: QC (duration, level, clipping, silence, SNR estimate), openSMILE eGeMAPSv02 functionals with the pinned config, record builder, local schema validation | Determinism test (same WAV → identical record minus timestamps); QC FAIL → failure call; records validate |
 | **S8** Research export and consumer | `research-export` job (JSONL + manifest, re-keyed IDs, consent-filtered), export manifest schema, `workstream-b/research-pipeline` ingest + validation + summary | Withdrawn participant absent from export; consumer rejects a tampered or unknown-version record |
@@ -111,7 +111,7 @@ S4 and S5 can't start until the consent model ([consent-and-data-lifecycle.md](.
 |---|---|---|
 | Contract | Schemas, examples (valid and invalid), OpenAPI structure, embedded examples, policy checks | `scripts/validate-examples.py`, pytest |
 | Unit | Consent scope maths, idempotency, QC functions, record builder | JUnit 5, pytest, Jest |
-| Integration | API against real Postgres and MinIO containers; migrations from blank | Testcontainers (no database mocks) |
+| Integration | API against real Postgres and S3-compatible storage containers; migrations from blank | Testcontainers (no database mocks) |
 | API conformance | Running API against the OpenAPI document (status codes, schemas, problem bodies) | Schemathesis in CI against the compose stack |
 | Consent path | Every participant-data endpoint × {granted, missing, withdrawn, expired} | JUnit parameterised tests |
 | Security | Authorisation matrix (role × endpoint × assigned/unassigned); secrets scan; dependency and image scan; no PII or audio in logs | JUnit, `check-secrets.sh`, OWASP Dependency-Check or Trivy |

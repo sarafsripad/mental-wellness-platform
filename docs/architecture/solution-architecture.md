@@ -249,9 +249,9 @@ No model output is part of this flow. Adding one later needs an approved inferen
 
 | Container | Image | Notes |
 |---|---|---|
-| `postgres` | postgres:16 | Two databases, `app_db` and `identity_db`, with separate roles |
-| `minio` | MinIO | S3-compatible audio bucket with server-side encryption enabled |
-| `keycloak` | Keycloak | Realm `wellness-local`, test users with synthetic names only, `processing-worker` client |
+| `postgres` | postgres:16.4 | Two databases, `app_db` and `identity_db`, with separate roles; password (SCRAM) required for every connection |
+| `storage` | SeaweedFS 4.47 | S3-compatible audio bucket: default SSE-S3 encryption, 30-day expiry, least-privilege app key, no anonymous access |
+| `keycloak` | Keycloak 26.0.5 | Realm `wellness-local`, test users with synthetic names only, `processing-worker` client |
 | `wellness-api` | built locally (Java 21) | Port 8080 |
 | `audio-processing-worker` | built locally (Python + openSMILE 3.0.x) | No published ports; internal network only |
 | `mailpit` *(optional, later)* | — | Only if notifications are added |
