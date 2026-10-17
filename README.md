@@ -10,26 +10,25 @@ A privacy-first, multilingual platform for community mental wellness. It support
 
 ## Overview
 
-The platform has two workstreams that are deployed independently and connected only through versioned contracts ([ADR-001](docs/architecture/ADR-001-workstream-separation.md)).
+The platform has two workstreams that are deployed independently and connected only through versioned contracts ([ADR-001](docs/architecture/ADR-001-workstream-separation.md)). The full design is in [solution-architecture.md](docs/architecture/solution-architecture.md).
 
 | | Workstream A: Application | Workstream B: Research |
 |---|---|---|
-| **Purpose** | Field data capture and clinician review | Voice AI research and model development |
-| **Components** | React Native mobile app (offline-first, multilingual), Spring Boot microservices (consent, session ingestion, feature routing, clinician review API), clinician review dashboard | openSMILE feature extraction, dataset engineering, model experimentation, evaluation, MLOps |
-| **Users** | ASHA workers, clinicians | Researchers, ML engineers |
-| **Data access** | Live participant data | Consent-filtered, pseudonymous feature records only |
+| **Purpose** | Field screening support, consent, voice capture, clinician review | Voice AI research and model development |
+| **Components** | React Native + TypeScript app (offline-first, English and Kannada); `wellness-api` Spring Boot modular monolith (Java 21); Python/openSMILE audio-processing worker; PostgreSQL; encrypted object storage | Export ingest, dataset engineering, experiments (scikit-learn, MLflow), evaluation |
+| **Users** | ASHA workers, clinicians, programme admins | Researchers, ML engineers |
+| **Data access** | Participant data, under consent checks | Consent-filtered, re-keyed feature records only, **never raw audio or identity** |
 
 ```
- Mobile app (ASHA worker)            Workstream A backend                 Workstream B
- ─────────────────────────           ────────────────────                 ────────────
- consent capture  ───────────────▶   consent service
- voice capture (offline queue) ──▶   session ingestion
-                                     feature routing ── consent filter ──▶ ingestion (voice-feature-schema.json)
-                                                                           datasets → experiments → evaluation
- clinician dashboard  ◀────────────  clinician review API ◀── inference-contract.json ── approved models only
+ Mobile app ──HTTPS/OIDC──▶ wellness-api (consent · voice-session · processing · research-export · audit)
+                                 │  ▲                                   │
+                     audio ──▶ object storage     internal API          │ consent-filtered export
+                                 │  │ claim / audio / result            ▼
+                                 ▼  └──── audio-processing-worker   research environment (Workstream B)
+                             PostgreSQL         (Python + openSMILE)    datasets → experiments → evaluation
 ```
 
-Workstream B has no write path into any Workstream A data store, and Workstream A does not depend on Workstream B at runtime.
+Feature extraction runs on the application side ([ADR-006](docs/architecture/architecture-decisions.md#adr-006-feature-extraction-runs-on-the-application-side)). Workstream B has no write path into Workstream A, and Workstream A doesn't depend on Workstream B at runtime.
 
 ---
 
@@ -53,14 +52,19 @@ These rules apply to all contributors, human or AI. The full list is in [CLAUDE.
 ```
 .claude/
   settings.json          # Hooks and permission deny-list
-  skills/                # Domain and workflow skills (/skill-name)
+  skills/<name>/SKILL.md # Domain and workflow skills (/skill-name)
   agents/                # Specialized subagents with bounded tools
-contracts/               # Versioned, schema-validated cross-workstream contracts
+contracts/
+  openapi/               # OpenAPI 3.1: wellness API v1, internal worker API v1, provisional APIs v0
+  voice-features/        # Feature-record schema v2.0.0, valid/invalid examples, versioning notes
+  inference-contract.json, voice-feature-schema.json (v1, deprecated)
 docs/
-  architecture/          # Architecture Decision Records (ADRs)
-  privacy/               # Data governance and consent requirements
-  research/              # Model validation and dataset specifications
+  architecture/          # Solution architecture, ADR log, ADR files
+  implementation/        # Vertical-slice plan
+  privacy/               # Data governance, consent and data lifecycle
+  research/              # Model validation plan and spec, experiment log
 scripts/                 # Deterministic, non-destructive validation scripts
+requirements-dev.txt     # Pinned tooling for contract validation (not used at runtime)
 workstream-a/            # Application source (planned)
 workstream-b/            # Research source (planned)
 ```
@@ -69,12 +73,14 @@ workstream-b/            # Research source (planned)
 
 ## Shared Contracts
 
-All cross-workstream data must conform to the JSON Schemas (draft 2020-12) in [contracts/](contracts/).
-
 | Contract | Version | Purpose |
 |---|---|---|
-| [voice-feature-schema.json](contracts/voice-feature-schema.json) | 1.0.0 | Pseudonymous acoustic feature record: session ID, BCP-47 language tag, openSMILE feature set, audio quality, consent reference and provenance |
-| [inference-contract.json](contracts/inference-contract.json) | 1.0.0 | Request and response format for decision-support inference |
+| [wellness-api.v1.yaml](contracts/openapi/wellness-api.v1.yaml) | 1.0.0-draft.1 | First-slice public API: consent, voice sessions, recordings, processing jobs |
+| [processing-worker.internal.v1.yaml](contracts/openapi/processing-worker.internal.v1.yaml) | 1.0.0-draft.1 | Internal API between the backend and the openSMILE worker |
+| [wellness-api-provisional.v0.yaml](contracts/openapi/wellness-api-provisional.v0.yaml) | 0.1.0-provisional | Outline only: cases, questionnaires, review, referrals, integration (blocked) |
+| [feature-record.schema.json](contracts/voice-features/feature-record.schema.json) | 2.0.0 | Pseudonymous engineering feature record; no identifiers, audio, transcript or prediction ([details](contracts/voice-features/README.md)) |
+| [inference-contract.json](contracts/inference-contract.json) | 1.0.0 | Future decision-support inference; needs revision before use |
+| [voice-feature-schema.json](contracts/voice-feature-schema.json) | 1.0.0 | **Deprecated**, superseded by feature-record v2.0.0 |
 
 A breaking schema change needs a version bump (in both `$id` and `version`) and a migration note. Use the `/api-contract-design` skill when changing a contract.
 
@@ -82,10 +88,13 @@ A breaking schema change needs a version bump (in both `$id` and `version`) and 
 
 ## Documentation
 
-- [ADR-001: Workstream separation](docs/architecture/ADR-001-workstream-separation.md): why A and B are deployed independently
-- [ADR template](docs/architecture/ADR-000-template.md): use this for new decisions
-- [Data governance](docs/privacy/data-governance.md): data categories, identifier handling, encryption and retention rules
-- [Model validation spec](docs/research/model-validation-spec.md): the requirements a model must meet before clinical use (draft, pending clinical and regulatory review)
+- [Solution architecture](docs/architecture/solution-architecture.md): context, components, data flows, deployment and cross-cutting concerns
+- [Architecture decisions](docs/architecture/architecture-decisions.md): ADR-003 to ADR-012 and the ADR index
+- [ADR-001: Workstream separation](docs/architecture/ADR-001-workstream-separation.md)
+- [Consent and data lifecycle](docs/privacy/consent-and-data-lifecycle.md): consent scopes, withdrawal, retention and approvals needed (**draft, needs named approval**)
+- [Data governance](docs/privacy/data-governance.md): data categories, identifier handling, access and audit rules
+- [Model validation plan](docs/research/model-validation-plan.md) and [spec](docs/research/model-validation-spec.md): the research workflow and the thresholds a model must meet before any clinical use
+- [Vertical-slice plan](docs/implementation/vertical-slice-plan.md): the first end-to-end engineering demonstration, using synthetic audio only
 
 ---
 
@@ -94,7 +103,8 @@ A breaking schema change needs a version bump (in both `$id` and `version`) and 
 ### Prerequisites
 
 - Git
-- Python 3 (used by the contract validation and lint scripts; `jq` works as a fallback for JSON syntax checks)
+- Python 3 (used by the validation scripts; `jq` works as a fallback for JSON syntax checks)
+- For full contract validation: `python3 -m pip install -r requirements-dev.txt`
 - Optional: `shellcheck`, and the linters for each workstream once code exists (ruff/black/flake8, ESLint, Checkstyle)
 - [Claude Code](https://claude.com/claude-code), if you want to use the development harness
 
@@ -103,12 +113,13 @@ A breaking schema change needs a version bump (in both `$id` and `version`) and 
 Run these from the repository root. They do not modify any files.
 
 ```bash
-bash scripts/validate-contracts.sh   # JSON syntax, versioning and governance fields in contracts/
-bash scripts/check-secrets.sh        # Scans uncommitted changes for secret patterns
+bash scripts/validate-contracts.sh   # Schema syntax, versioning and governance fields; runs the example checks when the dev requirements are installed
+python3 scripts/validate-examples.py # Feature-record examples, OpenAPI structure, embedded API examples, policy checks
+bash scripts/check-secrets.sh        # Scans uncommitted changes and untracked files for secret patterns
 bash scripts/lint-check.sh           # Runs whichever linters are configured (advisory)
 ```
 
-Run `validate-contracts.sh` before merging any change to `contracts/`.
+Run `validate-contracts.sh` and `validate-examples.py` before merging any change to `contracts/`.
 
 ---
 
@@ -118,7 +129,7 @@ The repository is set up for AI-assisted development with [Claude Code](https://
 
 ### Hooks
 
-After every file write or edit, [.claude/settings.json](.claude/settings.json) runs the three validation scripts above. The same file blocks destructive commands such as force-push, `--no-verify` commits, `DROP TABLE` and namespace deletion.
+After every file write or edit, [.claude/settings.json](.claude/settings.json) runs `check-secrets.sh`, `validate-contracts.sh` and `lint-check.sh`. A secret or an invalid contract exits with code 2, which stops Claude Code and shows it the error. The same file blocks destructive commands such as force-push, `--no-verify` commits, `DROP TABLE` and namespace deletion.
 
 ### Skills
 

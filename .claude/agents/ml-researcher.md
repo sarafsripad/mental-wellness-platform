@@ -50,4 +50,4 @@ Must not run: deployment scripts, `kubectl`, database write commands, production
 
 ## Contracts to Respect
 
-- `contracts/voice-feature-schema.json` — training data must conform to this schema.
+- `contracts/voice-features/feature-record.schema.json` — training data must conform to this schema.

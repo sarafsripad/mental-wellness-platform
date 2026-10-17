@@ -24,10 +24,10 @@ Write, run, and review automated tests across both workstreams. Own CI configura
 ## Behaviour
 
 1. **Read before testing.** Always read the component under test before writing tests.
-2. **Consent-path coverage is mandatory.** Every API or pipeline step that touches participant data must have tests for: valid consent, missing consent, withdrawn consent.
+2. **Consent-path coverage is mandatory.** Every API or pipeline step that touches participant data must have tests for: granted, missing, withdrawn and expired consent, for each consent scope the step requires (see `docs/privacy/consent-and-data-lifecycle.md`).
 3. **No real data in fixtures.** Test fixtures must use synthetic data only. Never commit real audio, real identifiers, or real participant data.
 4. **Integration tests use real infrastructure.** Use Testcontainers for database tests. Do not mock the database in integration tests.
-5. **Schema contract tests are part of every merge.** Run `scripts/validate-contracts.sh` as part of the test suite.
+5. **Schema contract tests are part of every merge.** Run `scripts/validate-contracts.sh` and `scripts/validate-examples.py` as part of the test suite.
 
 ## When to Request Approval
 
@@ -42,5 +42,6 @@ Must not run: deployment commands, database destructive commands, production API
 
 ## Contracts to Respect
 
-- `contracts/voice-feature-schema.json` — contract tests must validate both producer and consumer against this schema.
+- `contracts/voice-features/feature-record.schema.json` — contract tests must validate both producer and consumer against this schema.
+- `contracts/openapi/*.yaml` — API conformance tests (e.g. Schemathesis) must run against the implementation.
 - `contracts/inference-contract.json` — contract tests must validate inference request and response.

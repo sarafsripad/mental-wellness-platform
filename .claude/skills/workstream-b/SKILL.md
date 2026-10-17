@@ -21,11 +21,11 @@ Invoke with `/workstream-b` followed by your request. Examples:
 
 When this skill is invoked:
 
-1. **Classify the request.** Is it extraction config (→ `opensmile-processing`), dataset work (→ `dataset-engineering`), model training (→ `ml-experimentation`), evaluation (→ `model-evaluation`), or deployment (→ `mlops-release`)?
+1. **Classify the request.** Is it extraction config (→ `opensmile-processing`; note extraction runs in the application-side worker per ADR-006, so changes there are Workstream A releases), dataset work (→ `dataset-engineering`), model training (→ `ml-experimentation`), evaluation (→ `model-evaluation`), or deployment (→ `mlops-release`)?
 2. **Confirm consent coverage.** Before any data operation, verify that the sessions in scope have appropriate consent for the intended purpose.
 3. **Check existing pipeline code.** Read relevant `workstream-b/` source before modifying.
 4. **Propose a plan.** For any dataset or model change, outline the approach and affected artefacts. Wait for confirmation before executing.
-5. **Implement and validate.** Run `scripts/validate-contracts.sh` on any feature records produced. Log experiment results to the experiment tracker.
+5. **Implement and validate.** Validate consumed and produced records against `contracts/voice-features/feature-record.schema.json`, and run `scripts/validate-contracts.sh` if contracts changed. Log experiment results to the experiment tracker.
 6. **Do not auto-deploy.** Experiments and evaluations do not trigger production deployment. The `mlops-release` skill requires human approval at deployment.
 
 ## Safety Gates

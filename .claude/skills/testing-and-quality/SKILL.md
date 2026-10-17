@@ -22,13 +22,13 @@ Define test strategies, write tests, run automated checks, and review coverage f
 1. **Unit tests** — individual service methods, consent validation logic, offline-sync conflict resolution.
 2. **Integration tests** — REST API endpoints against a real (test) database. Do not mock the DB for integration tests.
 3. **Contract tests** — validate that request/response bodies conform to `contracts/` schemas.
-4. **Consent-path tests** — every API that touches voice or feature data must have a test case for: no consent, valid consent, withdrawn consent.
+4. **Consent-path tests** — every API that touches voice or feature data must have a test case for: granted, missing, withdrawn and expired consent, for each required scope.
 5. **Offline-sync tests** — simulate connectivity loss and verify queue behaviour, deduplication, and conflict resolution.
 
 ### Research Pipeline Tests (Workstream B)
 
 1. **Feature extraction determinism** — given the same audio input and config, openSMILE must produce identical feature values.
-2. **Schema conformance** — extracted feature records must pass `validate-contracts.sh`.
+2. **Schema conformance** — extracted feature records must validate against `contracts/voice-features/feature-record.schema.json` (see `scripts/validate-examples.py`).
 3. **Dataset integrity** — verify row counts, consent coverage, and absence of direct identifiers in training datasets.
 4. **Model evaluation regression** — after any model change, re-run the held-out evaluation set and verify metrics do not fall below documented thresholds.
 5. **No-training-on-production gate** — assert that production inference paths cannot write back to training data stores.
@@ -49,7 +49,7 @@ Define test strategies, write tests, run automated checks, and review coverage f
 ## Acceptance Criteria
 
 - [ ] All new public functions/endpoints have at least one happy-path and one error-path test.
-- [ ] Consent-path tests cover all three states: valid, missing, withdrawn.
+- [ ] Consent-path tests cover all four states: granted, missing, withdrawn, expired.
 - [ ] `scripts/validate-contracts.sh` passes.
 - [ ] No test fixture contains real participant data.
 - [ ] Test suite passes locally before declaring work complete.

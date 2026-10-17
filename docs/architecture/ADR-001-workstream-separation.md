@@ -49,6 +49,10 @@ Workstream A (application) and Workstream B (research) are independently deploya
 - The boundary is the ingestion endpoint in Workstream B — it accepts only `voice-feature-schema.json`-compliant records.
 - Workstream B must never be given database credentials, network access, or service accounts with write access to Workstream A stores.
 
+## Amendment (2026-10-17)
+
+The feature contract moved to `contracts/voice-features/feature-record.schema.json` v2.0.0; v1 (`contracts/voice-feature-schema.json`) is deprecated (ADR-009). Feature extraction runs in the application-side audio-processing worker (ADR-006), and Workstream B receives records only through the consent-filtered research export, not a Workstream B ingestion endpoint that Workstream A pushes to. The "feature routing service" above is now the `research-export` module of the wellness-api modular monolith (ADR-004). The decision itself is unchanged. See [architecture-decisions.md](architecture-decisions.md).
+
 ## Review Triggers
 
 - If a new feature requires real-time model inference within the application (may need an inference API layer).

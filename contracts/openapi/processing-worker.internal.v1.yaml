@@ -1,0 +1,360 @@
+openapi: 3.1.0
+info:
+  title: Mental Wellness Platform — Processing Worker Internal API
+  version: 1.0.0-draft.1
+  summary: Internal API between the wellness backend and the Python/openSMILE audio-processing worker.
+  description: |
+    The audio-processing worker (Python + openSMILE) has **no database credentials and no direct
+    object-storage credentials**. It pulls work from the backend over this API, fetches audio for
+    one claimed job at a time, and returns a feature record that must validate against
+    `contracts/voice-features/feature-record.schema.json`.
+
+    - **Network:** only reachable on the internal network. It is never exposed through the public ingress.
+    - **Authentication:** OAuth 2.0 client credentials for the `processing-worker` client, with
+      the role `PROCESSING_WORKER`. No user tokens are accepted.
+    - **Leases:** a claimed job is leased for `lease_seconds`. If the lease expires without a result,
+      the job returns to QUEUED (maximum 3 attempts) and the lease token stops working.
+    - **Consent:** the backend re-checks `AUDIO_RECORDING` on the job's consent event at claim time,
+      **when serving the audio**, and when accepting a result. If consent was withdrawn, the claim
+      skips the job, and the audio fetch or result is rejected with 409 `CONSENT_WITHDRAWN`. The
+      worker must then discard the audio and any output.
+    - **Untrusted worker output:** at result intake the backend does not trust worker-supplied
+      context. It overwrites `consent_reference`, `language_tag`, `provenance` (data origin, device
+      class, recorded time, app version) and `audio` technical properties from its own records,
+      or rejects the record (`JOB_MISMATCH`) if they differ. The worker only supplies measurement
+      fields: `extraction`, `processing`, `quality` and `features`.
+    - **Lease tokens:** at least 128 bits of randomness, bound to the claiming `X-Worker-Id` and the
+      job, never logged by either side.
+    - **Transport:** HTTP on the local Compose network only. TLS is required in every other environment.
+    - **Logging:** the worker logs job IDs, durations and error codes only. It never logs audio,
+      feature values or file paths.
+    - **Correlation:** the backend sends the originating `X-Correlation-ID` with the claim, and the
+      worker echoes it on every call for that job.
+    - **Clinical safety:** this API carries feature measurements only. The worker never computes
+      predictions, scores or labels.
+servers:
+  - url: http://wellness-api:8080
+    description: Docker Compose internal network
+security:
+  - workerClientCredentials: [processing:worker]
+tags:
+  - name: worker
+
+paths:
+  /internal/v1/processing-jobs/claim:
+    post:
+      tags: [worker]
+      operationId: claimProcessingJob
+      summary: Claim the next queued job
+      description: Atomically leases the oldest QUEUED job whose consent is still active. Uses `SELECT … FOR UPDATE SKIP LOCKED` on the job table, so there is no message broker.
+      x-roles: [PROCESSING_WORKER]
+      x-audit-events: [PROCESSING_JOB_CLAIMED]
+      parameters:
+        - $ref: '#/components/parameters/WorkerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimRequest' }
+            examples:
+              default:
+                value: { supported_profiles: [EGEMAPS_V02_FUNCTIONALS_V1], worker_version: 0.1.0 }
+      responses:
+        '200':
+          description: A job was leased.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobLease' }
+              examples:
+                lease: { $ref: '#/components/examples/JobLeaseExample' }
+        '204':
+          description: No job available. Poll again after a back-off.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /internal/v1/processing-jobs/{jobId}/audio:
+    get:
+      tags: [worker]
+      operationId: fetchJobAudio
+      summary: Stream the audio for a leased job
+      description: Returns the audio bytes after re-checking consent. The worker must verify the bytes against `JobLease.audio.sha256` (and report `AUDIO_DECODE_FAILED` on a mismatch), keep them in memory or a tmpfs scratch directory, and delete them when the job finishes.
+      x-roles: [PROCESSING_WORKER]
+      x-audit-events: [RECORDING_CONTENT_ACCESSED, RECORDING_CONTENT_ACCESS_REJECTED]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseToken'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Audio content. `X-Content-SHA256` lets the worker verify integrity.
+          headers:
+            X-Content-SHA256:
+              schema: { type: string, pattern: '^[a-f0-9]{64}$' }
+          content:
+            audio/wav:
+              schema: { type: string, contentMediaType: audio/wav }
+            audio/flac:
+              schema: { type: string, contentMediaType: audio/flac }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/LeaseConflict' }
+
+  /internal/v1/processing-jobs/{jobId}/result:
+    post:
+      tags: [worker]
+      operationId: submitJobResult
+      summary: Submit the feature record for a leased job
+      description: |
+        The backend validates the body against the feature-record schema, checks that its
+        `processing_job_id`, `recording_id` and `session_id` match the job, overwrites or verifies
+        the server-known context fields (see the top-level description), re-checks consent,
+        stores the record and marks the job SUCCEEDED. The call is idempotent per job: an
+        identical resubmission returns 200.
+      x-roles: [PROCESSING_WORKER]
+      x-audit-events: [FEATURE_RECORD_STORED, FEATURE_RECORD_REJECTED]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseToken'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../voice-features/feature-record.schema.json'
+      responses:
+        '201':
+          description: Record stored; job SUCCEEDED.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultAccepted' }
+              examples:
+                stored:
+                  value: { job_id: job_00000000000000000000000000000001, feature_record_id: frec_00000000000000000000000000000001, job_status: SUCCEEDED }
+        '200':
+          description: Identical record already stored for this job.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultAccepted' }
+        '400': { $ref: '#/components/responses/SchemaInvalid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/LeaseConflict' }
+
+  /internal/v1/processing-jobs/{jobId}/failure:
+    post:
+      tags: [worker]
+      operationId: reportJobFailure
+      summary: Report that a leased job failed
+      description: Used for audio-quality FAIL, decode errors and extraction errors. A FAIL quality result is reported here and never as a feature record.
+      x-roles: [PROCESSING_WORKER]
+      x-audit-events: [PROCESSING_JOB_FAILED]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/LeaseToken'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FailureReport' }
+            examples:
+              silence:
+                value:
+                  code: AUDIO_QUALITY_FAILED
+                  retryable: false
+                  quality_outcome: { status: FAIL, flags: [SILENCE] }
+      responses:
+        '200':
+          description: Failure recorded. Retryable failures are re-queued while attempts remain.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, job_status]
+                additionalProperties: false
+                properties:
+                  job_id: { type: string, pattern: '^job_[a-f0-9]{32}$' }
+                  job_status: { type: string, enum: [QUEUED, FAILED] }
+              examples:
+                failed:
+                  value: { job_id: job_00000000000000000000000000000002, job_status: FAILED }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/LeaseConflict' }
+
+components:
+  securitySchemes:
+    workerClientCredentials:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: http://keycloak:8081/realms/wellness-local/protocol/openid-connect/token
+          scopes:
+            processing:worker: Claim jobs, fetch leased audio, submit results.
+
+  parameters:
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^job_[a-f0-9]{32}$' }
+    LeaseToken:
+      name: X-Lease-Token
+      in: header
+      required: true
+      description: Opaque token from the claim response. It works only for this job and only until the lease expires.
+      schema: { type: string, minLength: 32, maxLength: 128 }
+    WorkerId:
+      name: X-Worker-Id
+      in: header
+      required: true
+      description: Random per-process worker instance ID, used for diagnostics.
+      schema: { type: string, pattern: '^wrk_[a-f0-9]{16}$' }
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid client-credentials token.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Token lacks the processing:worker scope.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    LeaseConflict:
+      description: The lease is expired or invalid, the job is no longer RUNNING, or consent was withdrawn (code CONSENT_WITHDRAWN). The worker must discard the job's audio and any output.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    SchemaInvalid:
+      description: The feature record failed schema validation or doesn't match the job. Field pointers are returned without values.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    ClaimRequest:
+      type: object
+      required: [supported_profiles, worker_version]
+      additionalProperties: false
+      properties:
+        supported_profiles:
+          type: array
+          minItems: 1
+          items: { type: string, enum: [EGEMAPS_V02_FUNCTIONALS_V1] }
+        worker_version: { type: string, pattern: '^\d+\.\d+\.\d+$' }
+    JobLease:
+      type: object
+      required: [job_id, recording_id, session_id, pipeline_profile, lease_token, lease_seconds, correlation_id, consent_reference, audio]
+      additionalProperties: false
+      properties:
+        job_id: { type: string, pattern: '^job_[a-f0-9]{32}$' }
+        recording_id: { type: string, pattern: '^rec_[a-f0-9]{32}$' }
+        session_id: { type: string, pattern: '^sess_[a-f0-9]{32}$' }
+        pipeline_profile: { type: string, enum: [EGEMAPS_V02_FUNCTIONALS_V1] }
+        lease_token: { type: string, minLength: 32, maxLength: 128, description: 'Opaque, ≥128-bit random, bound to worker and job. Never log.' }
+        lease_seconds: { type: integer, minimum: 30, maximum: 300 }
+        correlation_id: { type: string, format: uuid }
+        language_tag: { type: string, enum: [en-IN, kn-IN] }
+        data_origin: { type: string, enum: [SYNTHETIC, AUTHORIZED_TEST_AUDIO, PARTICIPANT] }
+        capture_device_class: { type: string, enum: [ANDROID_PHONE, IOS_PHONE, TABLET, UNKNOWN] }
+        recorded_at_utc: { type: string, format: date-time }
+        consent_reference:
+          type: object
+          description: Copied into the feature record unchanged.
+          required: [consent_event_id, scopes_verified, verified_at_utc]
+          additionalProperties: false
+          properties:
+            consent_event_id: { type: string, pattern: '^ce_[a-f0-9]{32}$' }
+            scopes_verified:
+              type: array
+              items: { type: string }
+            verified_at_utc: { type: string, format: date-time }
+        audio:
+          type: object
+          required: [format, sampling_rate_hz, channels, duration_seconds, sha256]
+          additionalProperties: false
+          properties:
+            format: { type: string, enum: [WAV_PCM_S16LE, FLAC] }
+            sampling_rate_hz: { type: integer }
+            channels: { type: integer }
+            duration_seconds: { type: number }
+            sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+    ResultAccepted:
+      type: object
+      required: [job_id, feature_record_id, job_status]
+      additionalProperties: false
+      properties:
+        job_id: { type: string, pattern: '^job_[a-f0-9]{32}$' }
+        feature_record_id: { type: string, pattern: '^frec_[a-f0-9]{32}$' }
+        job_status: { type: string, const: SUCCEEDED }
+    FailureReport:
+      type: object
+      required: [code, retryable]
+      additionalProperties: false
+      properties:
+        code: { type: string, enum: [AUDIO_QUALITY_FAILED, AUDIO_DECODE_FAILED, EXTRACTION_ERROR, TIMEOUT, INTERNAL_ERROR] }
+        retryable: { type: boolean }
+        quality_outcome:
+          type: object
+          required: [status, flags]
+          additionalProperties: false
+          properties:
+            status: { type: string, enum: [PASS, DEGRADED, FAIL] }
+            flags:
+              type: array
+              uniqueItems: true
+              items: { type: string, enum: [CLIPPING, LOW_LEVEL, SHORT_DURATION, LONG_DURATION, HIGH_NOISE, LOW_SPEECH_RATIO, SILENCE, FORMAT_MISMATCH] }
+        tool_exit_code: { type: [integer, 'null'] }
+    Problem:
+      type: object
+      required: [type, title, status, code, correlation_id]
+      additionalProperties: false
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string, enum: [UNAUTHENTICATED, FORBIDDEN, LEASE_EXPIRED, LEASE_INVALID, JOB_NOT_RUNNING, CONSENT_WITHDRAWN, SCHEMA_INVALID, JOB_MISMATCH, INTERNAL_ERROR] }
+        detail: { type: string, maxLength: 300 }
+        correlation_id: { type: string, format: uuid }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [pointer, rule]
+            additionalProperties: false
+            properties:
+              pointer: { type: string }
+              rule: { type: string }
+
+  examples:
+    JobLeaseExample:
+      value:
+        job_id: job_00000000000000000000000000000001
+        recording_id: rec_00000000000000000000000000000001
+        session_id: sess_00000000000000000000000000000001
+        pipeline_profile: EGEMAPS_V02_FUNCTIONALS_V1
+        lease_token: lt_synthetic_example_token_0000000000000000
+        lease_seconds: 300
+        correlation_id: 6f1c2b8e-3d4a-4f5b-9c6d-7e8f9a0b1c2d
+        language_tag: kn-IN
+        data_origin: SYNTHETIC
+        capture_device_class: ANDROID_PHONE
+        recorded_at_utc: '2026-10-17T09:12:40Z'
+        consent_reference:
+          consent_event_id: ce_00000000000000000000000000000001
+          scopes_verified: [SCREENING_PARTICIPATION, AUDIO_RECORDING]
+          verified_at_utc: '2026-10-17T09:15:02Z'
+        audio:
+          format: WAV_PCM_S16LE
+          sampling_rate_hz: 16000
+          channels: 1
+          duration_seconds: 32.4
+          sha256: '0000000000000000000000000000000000000000000000000000000000000000'

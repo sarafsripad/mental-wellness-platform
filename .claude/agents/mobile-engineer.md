@@ -43,4 +43,4 @@ Must not run: `adb shell rm`, `fastlane deploy`, or any command that pushes to a
 
 ## Contracts to Respect
 
-- `contracts/voice-feature-schema.json` — the mobile app's handoff payload must conform to the audio quality and consent reference sections.
+- `contracts/voice-features/feature-record.schema.json` — the mobile app's handoff payload must conform to the audio quality and consent reference sections.

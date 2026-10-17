@@ -29,8 +29,9 @@ Define and evolve the versioned schemas and API contracts in `contracts/` that b
 
 ## Constraints
 
-- Schema `$id` must embed the version (e.g., `/contracts/voice-feature-schema/v1.1.0`).
-- The `features` object in `voice-feature-schema` must never contain a field named with a clinical label (e.g., `depression_score`, `anxiety_label`). Use opaque feature names.
+- Schema `$id` must embed the version (e.g., `/contracts/voice-features/feature-record/v2.1.0`).
+- OpenAPI contracts live in `contracts/openapi/` (OpenAPI 3.1). Every operation declares `x-roles`, `x-audit-events` and `x-consent-prerequisite`; run `scripts/validate-examples.py` after any change.
+- `features[].name` in the feature-record schema must never be a clinical label (e.g., `depression_score`, `anxiety_label`); the schema rejects such names. Use native openSMILE names.
 - Inference response schemas must include a `limitations` field and a `result_is_not_a_diagnosis` constant.
 - Never remove a `consent_reference` or `session_id` requirement.
 

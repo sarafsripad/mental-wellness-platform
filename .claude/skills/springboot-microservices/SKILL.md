@@ -17,8 +17,8 @@ Implement and evolve the backend microservices for Workstream A. Services includ
 
 ## Workflow
 
-1. **Identify the service boundary.** Each service owns one domain: consent, ingestion, routing, or review. Do not create cross-domain transactions.
-2. **Define the API.** Document the endpoint in OpenAPI 3.x format in the service's `src/main/resources/openapi/` directory before implementing.
+1. **Identify the module boundary.** Each module owns one domain (consent, voice-session, processing, research-export, audit, …; see `docs/architecture/solution-architecture.md`). Do not reach into another module's tables.
+2. **Define the API.** The contract is `contracts/openapi/wellness-api.v1.yaml` (or the internal worker API). Update it and pass `scripts/validate-examples.py` before implementing.
 3. **Implement the consent gate.** Any endpoint that creates or reads participant data must validate the `consent_event_id` against the consent service before proceeding.
 4. **Implement the data layer.** Use Spring Data JPA for relational data. Use Flyway for schema migrations — never modify the database outside of a migration script.
 5. **Implement error handling.** Return structured error responses. Never leak internal exceptions, stack traces, or PII in error messages.
@@ -27,10 +27,10 @@ Implement and evolve the backend microservices for Workstream A. Services includ
 
 ## Constraints
 
-- Services must not share databases. Each service owns its schema.
+- Per ADR-004 the backend is a modular monolith (`wellness-api`). Modules must not share schemas or read each other's tables; they interact only through published module APIs or in-process events (enforced by Spring Modulith/ArchUnit tests). Identity data lives in a separate database (`identity_db`).
 - Database migrations are forward-only. No destructive Flyway scripts without explicit human approval.
 - Services must emit structured logs (JSON) without including participant data in log fields.
-- Feature routing service must not pass direct identifiers to Workstream B — only pseudonymous session IDs.
+- The research-export module must not pass direct identifiers to Workstream B — only re-keyed pseudonymous IDs (ADR-010).
 - Clinician review API requires role-based access control. Document roles in the OpenAPI spec.
 
 ## Expected Outputs

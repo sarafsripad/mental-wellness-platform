@@ -23,7 +23,7 @@ These rules apply in every context, to every agent, at every stage.
 5. **No automatic retraining or deployment.** New recordings must not trigger retraining or model updates without explicit human review and approval.
 6. **Human approval required for clinical use.** Any model intended for clinical decision support requires documented evaluation (`docs/research/`) and sign-off from a named responsible person.
 7. **Do not fabricate system access.** Never pretend to access hospital EMR, government health, or third-party systems unless explicitly integrated and documented.
-8. **Direct identifiers stay separate.** PII (name, phone, location) must never appear in feature records. Use pseudonymous session IDs only. See `contracts/voice-feature-schema.json`.
+8. **Direct identifiers stay separate.** PII (name, phone, location) must never appear in feature records. Use pseudonymous session IDs only. See `contracts/voice-features/feature-record.schema.json`.
 9. **Consent must be recorded, not assumed.** Every feature record must reference a consent event ID that exists in the consent service.
 10. **Flag sensitive changes for review.** Any edit touching voice recording, consent logic, or model-release paths must pause for explicit approval. Do not auto-merge.
 
@@ -34,13 +34,17 @@ These rules apply in every context, to every agent, at every stage.
 ```
 .claude/
   settings.json          # Hooks, permissions
-  skills/                # Domain and workflow skills (invoke with /skill-name)
+  skills/<name>/SKILL.md # Domain and workflow skills (invoke with /skill-name)
   agents/                # Specialized subagents
-contracts/               # Versioned API and feature schemas
+contracts/
+  openapi/               # OpenAPI 3.1 contracts (wellness API, internal worker API, provisional APIs)
+  voice-features/        # Feature-record schema v2.0.0, examples, versioning notes
+  *.json                 # inference contract; deprecated v1 feature schema
 docs/
-  architecture/          # Architecture Decision Records
-  privacy/               # Data governance and consent requirements
-  research/              # Model validation and dataset specifications
+  architecture/          # Solution architecture, ADR log, ADR files
+  implementation/        # Vertical-slice plan
+  privacy/               # Data governance, consent and data lifecycle
+  research/              # Model validation plan and spec, experiment log
 scripts/                 # Deterministic validation scripts (non-destructive)
 workstream-a/            # Application source (created during implementation)
 workstream-b/            # Research source (created during implementation)
@@ -50,7 +54,7 @@ workstream-b/            # Research source (created during implementation)
 
 ## Skills
 
-Invoke with `/skill-name` in the prompt. Skills are in `.claude/skills/`.
+Invoke with `/skill-name` in the prompt. Each skill is `.claude/skills/<name>/SKILL.md` (Claude Code only loads this layout).
 
 | Slash command         | Purpose                                              |
 |-----------------------|------------------------------------------------------|
@@ -89,4 +93,6 @@ Hooks run lightweight, non-destructive checks on every edit. See `.claude/settin
 
 ## Shared Contracts
 
-Cross-workstream data must conform to schemas in `contracts/`. Validate with `scripts/validate-contracts.sh` before merging. Breaking schema changes require a version bump and migration note.
+Cross-workstream data must conform to schemas in `contracts/`. Validate with `scripts/validate-contracts.sh` and `scripts/validate-examples.py` (needs `requirements-dev.txt`) before merging. Breaking schema changes require a version bump and migration note.
+
+Architecture decisions to respect: [solution-architecture.md](docs/architecture/solution-architecture.md) and [architecture-decisions.md](docs/architecture/architecture-decisions.md). In particular, openSMILE extraction runs in the application-side worker and Workstream B never receives raw audio (ADR-006); the backend is a modular monolith (ADR-004).

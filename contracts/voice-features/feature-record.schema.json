@@ -1,0 +1,544 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mental-wellness-platform/contracts/voice-features/feature-record/v2.0.0",
+  "title": "VoiceFeatureRecord",
+  "description": "Engineering record of acoustic and prosodic features extracted from one consented voice recording by the audio-processing worker. It is a measurement record, not a clinical prediction, screening result or diagnosis. It contains no direct identifiers, no raw audio and no transcript content. Supersedes contracts/voice-feature-schema.json v1.0.0.",
+  "version": "2.0.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "record_id",
+    "session_id",
+    "recording_id",
+    "processing_job_id",
+    "consent_reference",
+    "language_tag",
+    "extraction",
+    "audio",
+    "processing",
+    "quality",
+    "features",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0.0",
+      "description": "Version of this schema. Must match the version in $id."
+    },
+    "record_type": {
+      "type": "string",
+      "const": "ENGINEERING_FEATURE_RECORD",
+      "description": "Fixed marker distinguishing this record from any model output. A feature record never carries a prediction, score, label or diagnosis."
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^frec_[a-f0-9]{32}$",
+      "description": "Unique identifier of this feature record."
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^sess_[a-f0-9]{32}$",
+      "description": "Pseudonymous voice session identifier. Randomly generated; never derived from or reversible to a direct identifier without the separately held identity mapping."
+    },
+    "recording_id": {
+      "type": "string",
+      "pattern": "^rec_[a-f0-9]{32}$",
+      "description": "Pseudonymous identifier of the recording within the session."
+    },
+    "processing_job_id": {
+      "type": "string",
+      "pattern": "^job_[a-f0-9]{32}$",
+      "description": "Identifier of the audio-processing job that produced this record."
+    },
+    "consent_reference": {
+      "type": "object",
+      "description": "Reference to the consent event that authorised processing. Holds IDs and scopes only, never consent form content. Consumers must re-check current consent status with the consent service (or the consent-filtered export) before use; this snapshot does not authorise future use on its own.",
+      "required": [
+        "consent_event_id",
+        "scopes_verified",
+        "verified_at_utc"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "consent_event_id": {
+          "type": "string",
+          "pattern": "^ce_[a-f0-9]{32}$",
+          "description": "Immutable consent event identifier. Must resolve in the consent service; never a placeholder."
+        },
+        "scopes_verified": {
+          "type": "array",
+          "description": "Consent scopes that were active and checked when extraction ran. AUDIO_RECORDING must be present for a record to exist.",
+          "items": {
+            "$ref": "#/$defs/consentScope"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "contains": {
+            "const": "AUDIO_RECORDING"
+          }
+        },
+        "verified_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the consent check was performed (UTC)."
+        }
+      }
+    },
+    "language_tag": {
+      "type": "string",
+      "description": "BCP-47 tag of the spoken language, as declared at capture. Initial supported values: en-IN, kn-IN.",
+      "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$",
+      "examples": [
+        "en-IN",
+        "kn-IN"
+      ]
+    },
+    "extraction": {
+      "type": "object",
+      "description": "Tool and configuration used, with enough detail to reproduce the extraction.",
+      "required": [
+        "tool",
+        "tool_version",
+        "config_id",
+        "config_version",
+        "config_sha256",
+        "feature_set",
+        "feature_level",
+        "pipeline_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "type": "string",
+          "const": "openSMILE"
+        },
+        "tool_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "examples": [
+            "3.0.2"
+          ]
+        },
+        "config_id": {
+          "type": "string",
+          "description": "Identifier of the versioned openSMILE configuration file in the processing worker repository. Configs are immutable once used.",
+          "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+          "examples": [
+            "egemaps_v02_functionals"
+          ]
+        },
+        "config_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "config_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of the exact configuration file used."
+        },
+        "feature_set": {
+          "type": "string",
+          "enum": [
+            "eGeMAPSv02",
+            "GeMAPSv01b",
+            "ComParE_2016",
+            "emobase",
+            "CUSTOM"
+          ],
+          "description": "Named openSMILE feature set. CUSTOM requires documentation of the config in the processing worker repository."
+        },
+        "feature_level": {
+          "type": "string",
+          "enum": [
+            "FUNCTIONALS",
+            "LOW_LEVEL_DESCRIPTORS"
+          ],
+          "description": "Whether features are per-recording functionals or frame-level descriptors. v2.0.0 records carry FUNCTIONALS only in practice; frame-level output belongs in a separate artefact."
+        },
+        "pipeline_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "SemVer of the audio-processing worker."
+        },
+        "pipeline_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{7,40}$",
+          "description": "Source commit of the worker build, if known."
+        },
+        "container_image_digest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "description": "Digest of the worker container image, if run in a container."
+        }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "description": "Technical properties of the processed audio. Never contains the audio itself.",
+      "required": [
+        "sampling_rate_hz",
+        "channels",
+        "duration_seconds",
+        "input_format"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sampling_rate_hz": {
+          "type": "integer",
+          "minimum": 8000,
+          "maximum": 96000
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "duration_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 3600
+        },
+        "input_format": {
+          "type": "string",
+          "enum": [
+            "WAV_PCM_S16LE",
+            "WAV_PCM_F32LE",
+            "FLAC",
+            "AAC_M4A"
+          ]
+        },
+        "resampled_to_hz": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Sampling rate after any resampling before extraction; null if none."
+        }
+      }
+    },
+    "processing": {
+      "type": "object",
+      "required": [
+        "status",
+        "processed_at_utc"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "COMPLETED",
+            "COMPLETED_WITH_WARNINGS"
+          ],
+          "description": "Records are only written for completed extractions. Failed jobs are reported through the processing job status, not as feature records."
+        },
+        "processed_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "processing_time_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+          },
+          "maxItems": 20,
+          "uniqueItems": true,
+          "description": "Technical warning codes, e.g. NO_VOICED_FRAMES_IN_SEGMENTS, RESAMPLED_INPUT. Codes only, so no participant data can leak through free text."
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "COMPLETED_WITH_WARNINGS"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "warnings"
+        ],
+        "properties": {
+          "warnings": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "description": "Server-side quality-control result. FAIL-quality audio produces no feature record.",
+      "required": [
+        "status",
+        "flags"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "DEGRADED"
+          ]
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "CLIPPING",
+              "LOW_LEVEL",
+              "SHORT_DURATION",
+              "LONG_DURATION",
+              "HIGH_NOISE",
+              "LOW_SPEECH_RATIO",
+              "RESAMPLED",
+              "FORMAT_CONVERTED"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "snr_db": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "speech_ratio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "clipping_ratio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "peak_dbfs": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "maximum": 0
+        },
+        "degraded_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 300,
+          "description": "Required when status is DEGRADED. Short technical justification written by the processing team's rules, never participant information. It is dropped from research exports."
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "DEGRADED"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "degraded_reason"
+        ],
+        "properties": {
+          "degraded_reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "features": {
+      "type": "array",
+      "description": "Extracted features. Names are the native openSMILE names and must not be renamed to clinical terms.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/feature"
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Non-identifying lineage metadata.",
+      "required": [
+        "data_origin",
+        "capture_device_class",
+        "recorded_at_utc"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "data_origin": {
+          "type": "string",
+          "enum": [
+            "SYNTHETIC",
+            "AUTHORIZED_TEST_AUDIO",
+            "PARTICIPANT"
+          ],
+          "description": "Origin of the audio. SYNTHETIC and AUTHORIZED_TEST_AUDIO records may validate software only and must never be used as evidence of clinical performance."
+        },
+        "capture_device_class": {
+          "type": "string",
+          "enum": [
+            "ANDROID_PHONE",
+            "IOS_PHONE",
+            "TABLET",
+            "FIELD_RECORDER",
+            "UNKNOWN"
+          ],
+          "description": "Device class only. Never a device identifier."
+        },
+        "recorded_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Capture time, recorded by the device. Consumers needing less precision should truncate."
+        },
+        "app_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "consentScope": {
+      "type": "string",
+      "enum": [
+        "SCREENING_PARTICIPATION",
+        "AUDIO_RECORDING",
+        "AUDIO_RETENTION",
+        "RESEARCH_FEATURE_REUSE",
+        "MODEL_TRAINING",
+        "QUALITY_REVIEW"
+      ],
+      "description": "DRAFT — pending named approval of docs/privacy/consent-and-data-lifecycle.md. See that document for definitions."
+    },
+    "feature": {
+      "type": "object",
+      "required": [
+        "name",
+        "value",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.\\[\\]-]+$",
+          "not": {
+            "pattern": "([dD][eE][pP][rR][eE][sS][sS]|[bB][iI][pP][oO][lL][aA][rR]|[dD][eE][mM][eE][nN][tT][iI][aA]|[aA][lL][zZ][hH][eE][iI][mM]|[aA][nN][xX][iI]|[dD][iI][aA][gG][nN][oO][sS]|[sS][uU][iI][cC][iI][dD]|[sS][eE][lL][fF][hH][aA][rR][mM]|[sS][eE][lL][fF]_[hH][aA][rR][mM]|[sS][cC][hH][iI][zZ][oO]|[pP][sS][yY][cC][hH][oO][sS]|[pP][tT][sS][dD]|[mM][aA][nN][iI][aA]|[mM][aA][nN][iI][cC]|[mM][oO][oO][dD]|[pP][hH][qQ]|[gG][aA][dD]|[mM][mM][sS][eE]|[mM][oO][cC][aA]|[rR][iI][sS][kK]|[sS][cC][oO][rR][eE]|[lL][aA][bB][eE][lL]|[pP][rR][eE][dD][iI][cC][tT]|[cC][lL][aA][sS][sS]|[pP][rR][oO][bB])"
+          },
+          "description": "Native openSMILE feature name, e.g. F0semitoneFrom27.5Hz_sma3nz_amean. Names containing clinical, risk or prediction-like terms (any letter case) are rejected. The list is a guard, not a proof of safety; reviewers must still check new feature sets.",
+          "examples": [
+            "F0semitoneFrom27.5Hz_sma3nz_amean",
+            "jitterLocal_sma3nz_amean",
+            "loudness_sma3_amean"
+          ]
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Numeric value; null when status is not VALID."
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 32,
+          "description": "Unit where meaningful (e.g. semitone, dB, Hz, s, ratio); null for unitless or composite features.",
+          "examples": [
+            "semitone",
+            "dB",
+            "Hz",
+            "s",
+            "ratio"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "VALID",
+            "MISSING",
+            "INVALID",
+            "NOT_APPLICABLE"
+          ],
+          "description": "MISSING: could not be computed (e.g. no voiced frames). INVALID: computed but non-finite or out of range. NOT_APPLICABLE: not defined for this input."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+          "description": "Technical reason code when status is not VALID, e.g. INSUFFICIENT_VOICED_FRAMES, NON_FINITE_VALUE. Codes only, no free text."
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "VALID"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "number"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "value": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  },
+  "x-changelog": [
+    {
+      "version": "2.0.0",
+      "date": "2026-10-17",
+      "changes": "Supersedes contracts/voice-feature-schema.json v1.0.0. Breaking: features become an array of {name, value, unit, status, reason}; adds record_type, record_id, recording_id, processing_job_id; replaces consent_reference.permitted_purposes with scopes_verified (granular consent scopes, DRAFT); adds extraction, audio and processing blocks; quality status FAIL no longer produces a record; adds provenance.data_origin. See contracts/voice-features/README.md for the migration note."
+    }
+  ],
+  "x-governance": {
+    "direct_identifiers_prohibited": true,
+    "clinical_labels_prohibited_in_features": true,
+    "consent_reference_required": true,
+    "raw_audio_prohibited": true,
+    "transcript_content_prohibited": true,
+    "model_predictions_prohibited": true,
+    "note": "Produced only by the application-side audio-processing worker. Workstream B receives these records through the consent-filtered research export and never receives raw audio."
+  }
+}

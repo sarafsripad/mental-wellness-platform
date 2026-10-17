@@ -11,7 +11,7 @@ Implement the audio capture pipeline: record audio on device, validate quality g
 
 ## Prerequisites
 
-- Read `contracts/voice-feature-schema.json` — the audio quality block defines required quality fields.
+- Read `contracts/voice-features/feature-record.schema.json` — the audio quality block defines required quality fields.
 - Understand the consent gate: recording must not start until a consent event ID is stored locally.
 - Know the target audio format and quality requirements (sample rate, bit depth, channel count, minimum SNR).
 
@@ -38,7 +38,7 @@ Implement the audio capture pipeline: record audio on device, validate quality g
 - Audio capture component with consent gate, level monitor, duration enforcement.
 - On-device quality pre-screener.
 - Encrypted local audio file writer.
-- Handoff payload builder conforming to `contracts/voice-feature-schema.json` audio quality fields.
+- Handoff payload builder conforming to `contracts/voice-features/feature-record.schema.json` audio quality fields.
 - Tests: capture blocked without consent, duration validation, quality pre-screen output, encryption round-trip.
 
 ## Acceptance Criteria
@@ -46,6 +46,6 @@ Implement the audio capture pipeline: record audio on device, validate quality g
 - [ ] Recording blocked when no consent event is present.
 - [ ] Audio encrypted before writing to disk.
 - [ ] Quality indicators populated in feature record.
-- [ ] Handoff payload validates against `contracts/voice-feature-schema.json`.
+- [ ] Handoff payload validates against `contracts/voice-features/feature-record.schema.json`.
 - [ ] No audio data in application logs.
 - [ ] Tests pass for all capture gate conditions.

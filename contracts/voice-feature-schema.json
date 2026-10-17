@@ -4,6 +4,8 @@
   "title": "VoiceFeatureRecord",
   "description": "Pseudonymous voice-derived acoustic feature record. Direct identifiers (name, phone, location, device ID) must never appear in this document. Features are acoustic measurements only — not clinical interpretations.",
   "version": "1.0.0",
+  "deprecated": true,
+  "x-superseded-by": "contracts/voice-features/feature-record.schema.json (v2.0.0)",
   "type": "object",
   "required": [
     "schema_version",
@@ -160,6 +162,11 @@
       "version": "1.0.0",
       "date": "2026-10-17",
       "changes": "Initial schema version."
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-10-17",
+      "changes": "Marked deprecated; superseded by contracts/voice-features/feature-record.schema.json v2.0.0. No producer or consumer was built against v1. Schema rules unchanged. See contracts/voice-features/README.md for the migration mapping."
     }
   ],
   "x-governance": {

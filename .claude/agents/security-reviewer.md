@@ -56,5 +56,5 @@ Any finding that could result in: participant re-identification, consent bypass,
 
 ## Contracts to Respect
 
-- `contracts/voice-feature-schema.json` — verify that `session_id` never encodes a direct identifier.
+- `contracts/voice-features/feature-record.schema.json` — verify that `session_id` never encodes a direct identifier.
 - `contracts/inference-contract.json` — verify `result_is_not_a_diagnosis` and `limitations` are present.

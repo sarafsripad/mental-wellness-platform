@@ -1,0 +1,4 @@
+# Development and CI tooling only. Not used by any runtime service.
+jsonschema==4.23.0
+PyYAML==6.0.2
+openapi-spec-validator==0.7.1

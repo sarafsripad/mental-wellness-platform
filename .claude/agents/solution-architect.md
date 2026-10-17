@@ -41,5 +41,5 @@ Every ADR must contain: context, decision, consequences (positive and negative),
 
 ## Contracts to Respect
 
-- `contracts/voice-feature-schema.json` — may evolve, but direct identifiers must never be added.
+- `contracts/voice-features/feature-record.schema.json` — may evolve, but direct identifiers must never be added.
 - `contracts/inference-contract.json` — `result_is_not_a_diagnosis` must always be present.

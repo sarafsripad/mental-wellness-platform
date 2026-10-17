@@ -1,0 +1,87 @@
+{
+  "schema_version": "2.0.0",
+  "record_type": "ENGINEERING_FEATURE_RECORD",
+  "record_id": "frec_00000000000000000000000000000001",
+  "session_id": "sess_00000000000000000000000000000001",
+  "recording_id": "rec_00000000000000000000000000000001",
+  "processing_job_id": "job_00000000000000000000000000000001",
+  "consent_reference": {
+    "consent_event_id": "ce_00000000000000000000000000000001",
+    "scopes_verified": [
+      "SCREENING_PARTICIPATION",
+      "AUDIO_RECORDING"
+    ],
+    "verified_at_utc": "2026-10-17T09:15:02Z"
+  },
+  "language_tag": "kn-IN",
+  "extraction": {
+    "tool": "openSMILE",
+    "tool_version": "3.0.2",
+    "config_id": "egemaps_v02_functionals",
+    "config_version": "1.0.0",
+    "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "feature_set": "eGeMAPSv02",
+    "feature_level": "FUNCTIONALS",
+    "pipeline_version": "0.1.0",
+    "pipeline_commit": null,
+    "container_image_digest": null
+  },
+  "audio": {
+    "sampling_rate_hz": 16000,
+    "channels": 1,
+    "duration_seconds": 32.4,
+    "input_format": "WAV_PCM_S16LE",
+    "resampled_to_hz": null
+  },
+  "processing": {
+    "status": "COMPLETED",
+    "processed_at_utc": "2026-10-17T09:15:09Z",
+    "processing_time_ms": 1840,
+    "warnings": []
+  },
+  "quality": {
+    "status": "FAIL",
+    "flags": [],
+    "snr_db": 24.1,
+    "speech_ratio": 0.71,
+    "clipping_ratio": 0.0,
+    "peak_dbfs": -3.2,
+    "degraded_reason": null
+  },
+  "features": [
+    {
+      "name": "F0semitoneFrom27.5Hz_sma3nz_amean",
+      "value": 31.42,
+      "unit": "semitone",
+      "status": "VALID",
+      "reason": null
+    },
+    {
+      "name": "jitterLocal_sma3nz_amean",
+      "value": 0.021,
+      "unit": "ratio",
+      "status": "VALID",
+      "reason": null
+    },
+    {
+      "name": "loudness_sma3_amean",
+      "value": 0.84,
+      "unit": null,
+      "status": "VALID",
+      "reason": null
+    },
+    {
+      "name": "HNRdBACF_sma3nz_amean",
+      "value": 7.9,
+      "unit": "dB",
+      "status": "VALID",
+      "reason": null
+    }
+  ],
+  "provenance": {
+    "data_origin": "SYNTHETIC",
+    "capture_device_class": "ANDROID_PHONE",
+    "recorded_at_utc": "2026-10-17T09:12:40Z",
+    "app_version": "0.1.0"
+  }
+}

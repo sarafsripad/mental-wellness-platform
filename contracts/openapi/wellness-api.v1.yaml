@@ -1,0 +1,1229 @@
+openapi: 3.1.0
+info:
+  title: Mental Wellness Platform — Wellness API
+  version: 1.0.0-draft.1
+  summary: First-slice public API — consent, voice sessions, recordings and audio-processing jobs.
+  description: |
+    Public API of the wellness backend (a Spring Boot modular monolith, Java 21) used by the
+    React Native app and, later, the clinician web app.
+
+    **Status: DRAFT.** The consent scopes and consent operations need named approval before
+    implementation (CLAUDE.md rule 10). See docs/privacy/consent-and-data-lifecycle.md.
+
+    **Clinical safety:** No operation in this API returns a diagnosis, risk score or model
+    prediction. Processing jobs report technical status and audio quality only.
+
+    ## Cross-cutting rules
+    - **Authentication:** OIDC bearer access tokens (authorization code + PKCE for the mobile app).
+      Every operation requires a token, and there are no anonymous endpoints.
+    - **Authorization:** role claims (`ASHA_WORKER`, `CLINICIAN`, `ADMIN`) plus record-level
+      assignment checks. An ASHA worker may only act on participants assigned to them.
+      `RESEARCHER` has no access to this API. Research data is delivered only through the
+      consent-filtered research export.
+    - **Correlation:** clients send `X-Correlation-ID` (UUID). The server generates one if it is
+      absent and echoes it in every response and problem body.
+    - **Idempotency:** every create operation takes a client-generated resource ID and an
+      `Idempotency-Key`. Repeating a request with the same key and the same body returns the
+      original result. The same key with a different body returns `409 IDEMPOTENCY_CONFLICT`.
+      Keys are scoped to (authenticated principal, operation). Authorization runs **before** a
+      replay is answered, so a replayed key never returns a resource the caller can't access.
+      Keys are retained for at least 30 days so offline devices can retry safely.
+    - **Errors:** `application/problem+json` (RFC 9457). Problem bodies never contain participant
+      data, audio, stack traces or internal hostnames.
+    - **Audit:** operations list the audit events they emit in `x-audit-events`. Audit records
+      store actor pseudonym, role, action, resource ID, outcome, access-reason code, correlation
+      ID and timestamp, never request bodies.
+    - **ADMIN access:** every operation on participant-linked data accepts `X-Access-Reason`. The
+      server **requires** it (400 `VALIDATION_FAILED` if missing) when the caller has only the
+      ADMIN role for that participant, and it is recorded in the audit event.
+    - **Consent is checked per consent event:** the referenced `consent_event_id` must belong to
+      the participant, and the required scopes must be in effect **on that event** (a newer
+      consent event never revives an older, withdrawn one). Capture timestamps must not be
+      earlier than the event's `captured_at_utc`, and must not be later than any withdrawal of a
+      required scope recorded for that event.
+    - **Assignment (v1):** until the case module exists, a `participant_ref` is assigned to the
+      ASHA worker who records its first consent event. Reassignment is an ADMIN operation (not
+      yet specified).
+    - **Consent:** operations list their consent prerequisites in `x-consent-prerequisite`. The
+      server enforces them and the client check is only a convenience.
+  contact:
+    name: Platform architecture (solution-architect)
+servers:
+  - url: http://localhost:8080
+    description: Local development (Docker Compose) only. Every other environment uses HTTPS (TLS 1.2+).
+security:
+  - oidc: []
+tags:
+  - name: consent
+    description: Consent events, withdrawals and effective consent status.
+  - name: voice-sessions
+    description: Voice session creation and recording metadata/content submission.
+  - name: processing
+    description: Audio-processing job submission and status.
+
+paths:
+  /v1/consent-events:
+    post:
+      tags: [consent]
+      operationId: createConsentEvent
+      summary: Record a consent event
+      description: |
+        Records an informed-consent event captured by an ASHA worker, which may be created offline
+        and synced later. Consent events are immutable once accepted; changes are made through
+        withdrawals or a new consent event. The capturing worker is taken from the access token,
+        not the request body.
+      security:
+        - oidc: [consent:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must be assigned to participant_ref.
+      x-consent-prerequisite: none (this operation creates consent)
+      x-audit-events: [CONSENT_EVENT_CREATED, CONSENT_EVENT_REJECTED]
+      x-idempotency: consent_event_id plus Idempotency-Key; replay returns 200 with the stored event.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentEventCreate'
+            examples:
+              kannadaWitnessed:
+                $ref: '#/components/examples/ConsentEventCreateExample'
+      responses:
+        '201':
+          description: Consent event recorded.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentEvent' }
+              examples:
+                created: { $ref: '#/components/examples/ConsentEventExample' }
+        '200':
+          description: Idempotent replay; the stored event is returned unchanged.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentEvent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/consent-events/{consentEventId}:
+    get:
+      tags: [consent]
+      operationId: getConsentEvent
+      summary: Retrieve a consent event
+      security:
+        - oidc: [consent:read]
+      x-roles: [ASHA_WORKER, CLINICIAN, ADMIN]
+      x-data-access: ASHA_WORKER and CLINICIAN only for assigned participants. ADMIN access is audit-logged with a reason code.
+      x-consent-prerequisite: none
+      x-audit-events: [CONSENT_EVENT_READ]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/ConsentEventId'
+        - $ref: '#/components/parameters/AccessReason'
+      responses:
+        '200':
+          description: The consent event with its current status.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentEvent' }
+              examples:
+                active: { $ref: '#/components/examples/ConsentEventExample' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/consent-events/{consentEventId}/withdrawals:
+    post:
+      tags: [consent]
+      operationId: withdrawConsent
+      summary: Withdraw some or all consent scopes
+      description: |
+        Records a withdrawal (append-only) against a consent event. Withdrawal takes effect for
+        new operations as soon as it is accepted. Downstream effects (cancelling queued processing
+        jobs, excluding records from future research exports, deleting retained audio) are applied
+        asynchronously and reported in `downstream_actions`. Already-derived data is handled as
+        described in docs/privacy/consent-and-data-lifecycle.md; that policy needs stakeholder approval.
+        A withdrawal can never be rejected because of outstanding processing work.
+      security:
+        - oidc: [consent:write]
+      x-roles: [ASHA_WORKER, CLINICIAN, ADMIN]
+      x-data-access: ASHA_WORKER and CLINICIAN only for assigned participants. ADMIN with reason code.
+      x-consent-prerequisite: Consent event exists. Withdrawing an already-withdrawn scope is a no-op that returns 200.
+      x-audit-events: [CONSENT_WITHDRAWN, CONSENT_DOWNSTREAM_ACTION_SCHEDULED]
+      x-idempotency: withdrawal_id plus Idempotency-Key.
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ConsentEventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConsentWithdrawalCreate' }
+            examples:
+              withdrawResearch: { $ref: '#/components/examples/ConsentWithdrawalCreateExample' }
+      responses:
+        '202':
+          description: Withdrawal recorded; downstream actions scheduled.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentWithdrawal' }
+              examples:
+                accepted: { $ref: '#/components/examples/ConsentWithdrawalExample' }
+        '200':
+          description: Idempotent replay, or a no-op because the scopes were already withdrawn.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentWithdrawal' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/participants/{participantRef}/consent-status:
+    get:
+      tags: [consent]
+      operationId: getConsentStatus
+      summary: Effective consent status for a participant
+      description: Returns the scopes currently in effect, combining all consent events and withdrawals. The mobile app uses this to enable or disable capture after sync.
+      security:
+        - oidc: [consent:read]
+      x-roles: [ASHA_WORKER, CLINICIAN, ADMIN]
+      x-data-access: ASHA_WORKER and CLINICIAN only for assigned participants.
+      x-consent-prerequisite: none
+      x-audit-events: [CONSENT_STATUS_READ]
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/ParticipantRef'
+      responses:
+        '200':
+          description: Effective consent status.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentStatus' }
+              examples:
+                partiallyWithdrawn: { $ref: '#/components/examples/ConsentStatusExample' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/voice-sessions:
+    post:
+      tags: [voice-sessions]
+      operationId: createVoiceSession
+      summary: Create a voice session
+      description: Creates a voice capture session for a consented participant. Sessions may be created offline and synced; `captured_at_utc` is the device time.
+      security:
+        - oidc: [voice:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must be assigned to participant_ref.
+      x-consent-prerequisite: consent_event_id must belong to participant_ref, SCREENING_PARTICIPATION and AUDIO_RECORDING must be in effect on that event when the server processes the request, and captured_at_utc must not be before the event's capture time or after a withdrawal of either scope. Otherwise 422 CONSENT_NOT_ACTIVE or CONSENT_PARTICIPANT_MISMATCH.
+      x-audit-events: [VOICE_SESSION_CREATED, VOICE_SESSION_REJECTED_CONSENT]
+      x-idempotency: session_id plus Idempotency-Key.
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoiceSessionCreate' }
+            examples:
+              syntheticSession: { $ref: '#/components/examples/VoiceSessionCreateExample' }
+      responses:
+        '201':
+          description: Session created.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceSession' }
+              examples:
+                created: { $ref: '#/components/examples/VoiceSessionExample' }
+        '200':
+          description: Idempotent replay.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/voice-sessions/{sessionId}:
+    get:
+      tags: [voice-sessions]
+      operationId: getVoiceSession
+      summary: Retrieve a voice session and its recordings' status
+      description: Returns session metadata and recording/processing status. Never returns audio, feature values or any model output.
+      security:
+        - oidc: [voice:read]
+      x-roles: [ASHA_WORKER, CLINICIAN, ADMIN]
+      x-data-access: ASHA_WORKER and CLINICIAN only for assigned participants.
+      x-consent-prerequisite: none for metadata. Sessions with fully withdrawn consent return status CANCELLED.
+      x-audit-events: [VOICE_SESSION_READ]
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: The session.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoiceSession' }
+              examples:
+                processed: { $ref: '#/components/examples/VoiceSessionExample' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/voice-sessions/{sessionId}/recordings:
+    post:
+      tags: [voice-sessions]
+      operationId: submitRecordingMetadata
+      summary: Submit recording metadata
+      description: Registers a recording and its expected checksum before content upload. The response gives the upload path.
+      security:
+        - oidc: [voice:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must own the session (created it or is assigned to its participant).
+      x-consent-prerequisite: AUDIO_RECORDING in effect on the session's consent event, and recorded_at_utc not after a withdrawal of it.
+      x-audit-events: [RECORDING_REGISTERED]
+      x-idempotency: recording_id plus Idempotency-Key.
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordingCreate' }
+            examples:
+              wav16k: { $ref: '#/components/examples/RecordingCreateExample' }
+      responses:
+        '201':
+          description: Recording registered; awaiting content.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recording' }
+              examples:
+                awaiting: { $ref: '#/components/examples/RecordingExample' }
+        '200':
+          description: Idempotent replay.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recording' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/voice-sessions/{sessionId}/recordings/{recordingId}/content:
+    put:
+      tags: [voice-sessions]
+      operationId: uploadRecordingContent
+      summary: Upload recording audio
+      description: |
+        Uploads the audio for a registered recording in a single request (maximum 25 MB in v1). The
+        server **computes** the SHA-256 and byte length of the received body itself, and rejects the
+        upload (422 CHECKSUM_MISMATCH) unless both match the registered `sha256` and `size_bytes`
+        and the `X-Content-SHA256` header. It then stores the audio in
+        encrypted object storage. Audio is never written to logs. Re-uploading identical content is
+        idempotent, and different content for an already-uploaded recording returns 409.
+        Resumable or chunked upload is deferred (see vertical-slice-plan.md).
+      security:
+        - oidc: [voice:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must own the session.
+      x-consent-prerequisite: AUDIO_RECORDING in effect, re-checked at upload time. Withdrawn returns 422 CONSENT_NOT_ACTIVE and the bytes are discarded.
+      x-audit-events: [RECORDING_CONTENT_STORED, RECORDING_CONTENT_REJECTED]
+      x-idempotency: Natural, keyed on recordingId and checksum.
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/RecordingId'
+        - name: X-Content-SHA256
+          in: header
+          required: true
+          description: Lowercase hex SHA-256 of the request body.
+          schema: { type: string, pattern: '^[a-f0-9]{64}$' }
+      requestBody:
+        required: true
+        content:
+          audio/wav:
+            schema: { type: string, contentMediaType: audio/wav }
+          audio/flac:
+            schema: { type: string, contentMediaType: audio/flac }
+      responses:
+        '200':
+          description: Content stored (or identical content already stored).
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recording' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/processing-jobs:
+    post:
+      tags: [processing]
+      operationId: submitProcessingJob
+      summary: Submit an audio-processing job
+      description: |
+        Queues openSMILE feature extraction for an uploaded recording. Processing is asynchronous,
+        so poll `getProcessingJob` for the result. Submitting the same recording and pipeline
+        profile again returns the existing job.
+      security:
+        - oidc: [processing:write]
+      x-roles: [ASHA_WORKER, ADMIN]
+      x-data-access: ASHA_WORKER must own the session. ADMIN with reason code, for example to process an existing recording under a newer pipeline profile. The same recording and profile always return the existing job.
+      x-consent-prerequisite: AUDIO_RECORDING in effect at submission. Re-checked by the server before the worker is given the audio. Withdrawal cancels queued jobs.
+      x-audit-events: [PROCESSING_JOB_SUBMITTED]
+      x-idempotency: (recording_id, pipeline_profile) is unique; replay returns 200 with the existing job.
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProcessingJobCreate' }
+            examples:
+              egemaps: { $ref: '#/components/examples/ProcessingJobCreateExample' }
+      responses:
+        '202':
+          description: Job queued.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessingJob' }
+              examples:
+                queued: { $ref: '#/components/examples/ProcessingJobQueuedExample' }
+        '200':
+          description: Existing job for this recording and profile.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessingJob' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/processing-jobs/{jobId}:
+    get:
+      tags: [processing]
+      operationId: getProcessingJob
+      summary: Retrieve processing job status
+      description: |
+        Returns job status and the audio-quality outcome. Feature values are **not** returned: they
+        aren't meaningful to ASHA workers or clinicians, and they are not a screening result. The
+        response sets `Retry-After` while the job is QUEUED or RUNNING.
+      security:
+        - oidc: [processing:read]
+      x-roles: [ASHA_WORKER, CLINICIAN, ADMIN]
+      x-data-access: ASHA_WORKER and CLINICIAN only for assigned participants.
+      x-consent-prerequisite: none (status only).
+      x-audit-events: [PROCESSING_JOB_READ]
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Current job status.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+            Retry-After:
+              description: Suggested polling delay in seconds while the job is not terminal.
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProcessingJob' }
+              examples:
+                succeeded: { $ref: '#/components/examples/ProcessingJobSucceededExample' }
+                failedQuality: { $ref: '#/components/examples/ProcessingJobFailedExample' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: http://localhost:8081/realms/wellness-local/.well-known/openid-configuration
+      description: Local development identity provider (Keycloak in Docker Compose). Production IdP not yet selected.
+
+  parameters:
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: Client-supplied UUID that is propagated to logs, audit events and the processing worker.
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Client-generated UUID, stable across retries of the same logical request.
+      schema: { type: string, format: uuid }
+    AccessReason:
+      name: X-Access-Reason
+      in: header
+      required: false
+      description: Required (enforced by the server) when the caller accesses a participant-linked record through the ADMIN role. Reason code only, no free text.
+      schema: { type: string, enum: [SUPPORT_TICKET, DATA_SUBJECT_REQUEST, AUDIT, INCIDENT_RESPONSE] }
+    ConsentEventId:
+      name: consentEventId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ConsentEventId' }
+    ParticipantRef:
+      name: participantRef
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ParticipantRef' }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/SessionId' }
+    RecordingId:
+      name: recordingId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/RecordingId' }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/JobId' }
+
+  headers:
+    CorrelationId:
+      description: Correlation ID for this request (echoed or generated).
+      schema: { type: string, format: uuid }
+    Location:
+      description: URL of the created resource.
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Request failed schema validation. `errors` lists field paths and rule names, never submitted values.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            validation: { $ref: '#/components/examples/ProblemValidationExample' }
+    Unauthorized:
+      description: Missing, expired or invalid access token.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Authenticated, but the role, scope or participant assignment does not permit this action. The response does not reveal whether the resource exists.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Resource not found, or not visible to the caller.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Idempotency key reused with a different body, resource ID already used, or content checksum differs from stored content.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnprocessableConsent:
+      description: Request is well-formed but violates a consent or domain rule (for example CONSENT_NOT_ACTIVE, CONSENT_PARTICIPANT_MISMATCH, ADULT_CONFIRMATION_REQUIRED, CHECKSUM_MISMATCH or RECORDING_NOT_UPLOADED).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            consentNotActive: { $ref: '#/components/examples/ProblemConsentExample' }
+    PayloadTooLarge:
+      description: Audio exceeds the v1 size limit.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnsupportedMediaType:
+      description: Audio format not accepted.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Rate limit exceeded; retry after the indicated delay.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InternalError:
+      description: Unexpected server error. Safe to retry idempotent requests with the same Idempotency-Key.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    ParticipantRef:
+      type: string
+      pattern: '^ppt_[a-f0-9]{32}$'
+      description: Pseudonymous participant reference, randomly generated at enrolment. The mapping to identity is held only in the identity module.
+    ConsentEventId:
+      type: string
+      pattern: '^ce_[a-f0-9]{32}$'
+    WithdrawalId:
+      type: string
+      pattern: '^cw_[a-f0-9]{32}$'
+    SessionId:
+      type: string
+      pattern: '^sess_[a-f0-9]{32}$'
+    RecordingId:
+      type: string
+      pattern: '^rec_[a-f0-9]{32}$'
+    JobId:
+      type: string
+      pattern: '^job_[a-f0-9]{32}$'
+    FeatureRecordId:
+      type: string
+      pattern: '^frec_[a-f0-9]{32}$'
+    LanguageTag:
+      type: string
+      enum: [en-IN, kn-IN]
+      description: Supported languages in v1. Adding a language is a minor version change.
+    Timestamp:
+      type: string
+      format: date-time
+    Sha256Hex:
+      type: string
+      pattern: '^[a-f0-9]{64}$'
+
+    ConsentScope:
+      type: string
+      description: DRAFT, pending named approval. Definitions are in docs/privacy/consent-and-data-lifecycle.md.
+      enum:
+        - SCREENING_PARTICIPATION
+        - AUDIO_RECORDING
+        - AUDIO_RETENTION
+        - RESEARCH_FEATURE_REUSE
+        - MODEL_TRAINING
+        - QUALITY_REVIEW
+
+    ScopeDecision:
+      type: object
+      required: [scope, granted]
+      additionalProperties: false
+      properties:
+        scope: { $ref: '#/components/schemas/ConsentScope' }
+        granted:
+          type: boolean
+          description: Explicit decision. There are no defaults, and every scope offered by the form version must appear.
+
+    ConsentEventCreate:
+      type: object
+      required: [consent_event_id, participant_ref, consent_form, scope_decisions, capture, safeguards]
+      additionalProperties: false
+      properties:
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        consent_form:
+          type: object
+          required: [form_id, form_version, language_tag]
+          additionalProperties: false
+          properties:
+            form_id: { type: string, pattern: '^[a-z0-9-]{3,64}$' }
+            form_version: { type: string, pattern: '^\d+\.\d+\.\d+$' }
+            language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        scope_decisions:
+          type: array
+          minItems: 1
+          maxItems: 6
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ScopeDecision' }
+          description: |
+            Server rejects (422 CONSENT_SCOPE_INCOMPLETE) if a scope offered by the form version is
+            missing, or a scope is granted without the scopes it depends on. Dependency graph:
+            AUDIO_RECORDING → SCREENING_PARTICIPATION; AUDIO_RETENTION, RESEARCH_FEATURE_REUSE and
+            QUALITY_REVIEW → AUDIO_RECORDING; MODEL_TRAINING → RESEARCH_FEATURE_REUSE.
+        capture:
+          type: object
+          required: [captured_at_utc, method, read_aloud, comprehension_confirmed]
+          additionalProperties: false
+          properties:
+            captured_at_utc: { $ref: '#/components/schemas/Timestamp' }
+            method:
+              type: string
+              enum: [SIGNED_ON_DEVICE, THUMBPRINT_ON_DEVICE, VERBAL_WITNESSED]
+              description: Which methods are acceptable is an open legal question (see consent-and-data-lifecycle.md).
+            read_aloud:
+              type: boolean
+              description: Form was read aloud to the participant.
+            comprehension_confirmed:
+              type: boolean
+              const: true
+              description: The worker confirmed the participant understood. Must be true.
+            witness_present: { type: boolean }
+        safeguards:
+          type: object
+          required: [adult_confirmed]
+          additionalProperties: false
+          properties:
+            adult_confirmed:
+              type: boolean
+              const: true
+              description: v1 accepts adult participants only. Minors are blocked until the guardian-consent policy is approved.
+            assisted_consent:
+              type: boolean
+              description: Participant needed additional support to consent. Policy for who may assist is pending.
+
+    ConsentEvent:
+      type: object
+      required: [consent_event_id, participant_ref, consent_form, scope_decisions, status, effective_scopes, captured_at_utc, received_at_utc]
+      additionalProperties: false
+      properties:
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        consent_form:
+          type: object
+          required: [form_id, form_version, language_tag]
+          additionalProperties: false
+          properties:
+            form_id: { type: string }
+            form_version: { type: string }
+            language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        scope_decisions:
+          type: array
+          items: { $ref: '#/components/schemas/ScopeDecision' }
+        status:
+          type: string
+          enum: [ACTIVE, PARTIALLY_WITHDRAWN, WITHDRAWN, EXPIRED]
+        effective_scopes:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ConsentScope' }
+        captured_by_worker_ref:
+          type: string
+          pattern: '^wkr_[a-f0-9]{32}$'
+          description: Pseudonym of the capturing ASHA worker (from the token).
+        captured_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        received_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        expires_at_utc:
+          type: [string, 'null']
+          format: date-time
+          description: Null until the retention and expiry policy is approved.
+
+    ConsentWithdrawalCreate:
+      type: object
+      required: [withdrawal_id, withdrawn_at_utc, channel]
+      additionalProperties: false
+      properties:
+        withdrawal_id: { $ref: '#/components/schemas/WithdrawalId' }
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ConsentScope' }
+          description: |
+            Scopes to withdraw. Omit to withdraw all scopes. Withdrawal cascades transitively to
+            every dependent scope (see the dependency graph on ConsentEventCreate.scope_decisions):
+            SCREENING_PARTICIPATION withdraws everything; AUDIO_RECORDING also withdraws
+            AUDIO_RETENTION, RESEARCH_FEATURE_REUSE, MODEL_TRAINING and QUALITY_REVIEW;
+            RESEARCH_FEATURE_REUSE also withdraws MODEL_TRAINING. `withdrawn_scopes` in the
+            response lists the full cascaded set.
+        withdrawn_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        channel:
+          type: string
+          enum: [IN_PERSON_ASHA, IN_PERSON_CLINICIAN, PHONE_TO_PROGRAMME, WRITTEN_REQUEST]
+        reason_code:
+          type: [string, 'null']
+          enum: [NO_LONGER_WISHES, PRIVACY_CONCERN, OTHER, NOT_STATED, null]
+          description: Optional and never required of the participant. No free text.
+
+    ConsentWithdrawal:
+      type: object
+      required: [withdrawal_id, consent_event_id, withdrawn_scopes, resulting_status, downstream_actions, recorded_at_utc]
+      additionalProperties: false
+      properties:
+        withdrawal_id: { $ref: '#/components/schemas/WithdrawalId' }
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+        withdrawn_scopes:
+          type: array
+          items: { $ref: '#/components/schemas/ConsentScope' }
+        resulting_status:
+          type: string
+          enum: [PARTIALLY_WITHDRAWN, WITHDRAWN]
+        downstream_actions:
+          type: array
+          items:
+            type: object
+            required: [action, status]
+            additionalProperties: false
+            properties:
+              action:
+                type: string
+                enum: [CANCEL_QUEUED_PROCESSING, EXCLUDE_FROM_RESEARCH_EXPORT, DELETE_RETAINED_AUDIO, FLAG_DERIVED_FEATURES]
+              status:
+                type: string
+                enum: [SCHEDULED, COMPLETED, NOT_APPLICABLE]
+        recorded_at_utc: { $ref: '#/components/schemas/Timestamp' }
+
+    ConsentStatus:
+      type: object
+      required: [participant_ref, status, effective_scopes, as_of_utc]
+      additionalProperties: false
+      properties:
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        status:
+          type: string
+          enum: [NO_CONSENT, ACTIVE, PARTIALLY_WITHDRAWN, WITHDRAWN, EXPIRED]
+        active_consent_event_id:
+          oneOf:
+            - $ref: '#/components/schemas/ConsentEventId'
+            - type: 'null'
+        effective_scopes:
+          type: array
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ConsentScope' }
+        as_of_utc: { $ref: '#/components/schemas/Timestamp' }
+
+    VoiceSessionCreate:
+      type: object
+      required: [session_id, participant_ref, consent_event_id, language_tag, prompt_set, captured_at_utc, device, data_origin]
+      additionalProperties: false
+      properties:
+        session_id: { $ref: '#/components/schemas/SessionId' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+        language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        prompt_set:
+          type: object
+          required: [prompt_set_id, prompt_set_version]
+          additionalProperties: false
+          description: Which speaking tasks were shown (for example sustained vowel or reading passage). Prompt content is versioned separately. Spoken content is never transcribed in v1.
+          properties:
+            prompt_set_id: { type: string, pattern: '^[a-z0-9-]{3,64}$' }
+            prompt_set_version: { type: string, pattern: '^\d+\.\d+\.\d+$' }
+        captured_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        device:
+          type: object
+          required: [device_class, app_version, os_family]
+          additionalProperties: false
+          description: Device class only. No device identifiers, IMEI or advertising IDs.
+          properties:
+            device_class: { type: string, enum: [ANDROID_PHONE, IOS_PHONE, TABLET, UNKNOWN] }
+            app_version: { type: string, pattern: '^\d+\.\d+\.\d+$' }
+            os_family: { type: string, enum: [ANDROID, IOS] }
+        data_origin:
+          type: string
+          enum: [SYNTHETIC, AUTHORIZED_TEST_AUDIO, PARTICIPANT]
+          description: PARTICIPANT is rejected (422) by any environment not approved for real participant data. All environments are unapproved today.
+
+    VoiceSession:
+      type: object
+      required: [session_id, participant_ref, consent_event_id, language_tag, status, data_origin, recordings, created_at_utc]
+      additionalProperties: false
+      properties:
+        session_id: { $ref: '#/components/schemas/SessionId' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+        language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        status:
+          type: string
+          enum: [CREATED, AWAITING_CONTENT, UPLOADED, PROCESSING, PROCESSED, PROCESSING_FAILED, CANCELLED]
+        data_origin:
+          type: string
+          enum: [SYNTHETIC, AUTHORIZED_TEST_AUDIO, PARTICIPANT]
+        recordings:
+          type: array
+          items: { $ref: '#/components/schemas/Recording' }
+        created_at_utc: { $ref: '#/components/schemas/Timestamp' }
+
+    RecordingCreate:
+      type: object
+      required: [recording_id, prompt_id, format, sampling_rate_hz, channels, duration_seconds, size_bytes, sha256, recorded_at_utc]
+      additionalProperties: false
+      properties:
+        recording_id: { $ref: '#/components/schemas/RecordingId' }
+        prompt_id: { type: string, pattern: '^[a-z0-9-]{3,64}$' }
+        format: { type: string, enum: [WAV_PCM_S16LE, FLAC] }
+        sampling_rate_hz: { type: integer, enum: [16000, 22050, 44100, 48000] }
+        channels: { type: integer, enum: [1] }
+        duration_seconds: { type: number, minimum: 3, maximum: 180 }
+        size_bytes: { type: integer, minimum: 1, maximum: 26214400 }
+        sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        recorded_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        device_prescreen:
+          type: object
+          additionalProperties: false
+          description: Informational on-device checks only; they do not replace server-side quality control.
+          properties:
+            peak_dbfs: { type: [number, 'null'], maximum: 0 }
+            clipping_detected: { type: boolean }
+            low_level_detected: { type: boolean }
+
+    Recording:
+      type: object
+      required: [recording_id, session_id, prompt_id, format, duration_seconds, sha256, upload_status]
+      additionalProperties: false
+      properties:
+        recording_id: { $ref: '#/components/schemas/RecordingId' }
+        session_id: { $ref: '#/components/schemas/SessionId' }
+        prompt_id: { type: string }
+        format: { type: string, enum: [WAV_PCM_S16LE, FLAC] }
+        duration_seconds: { type: number }
+        sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        upload_status:
+          type: string
+          enum: [AWAITING_CONTENT, STORED, REJECTED, DELETED]
+        upload_path:
+          type: [string, 'null']
+          description: Relative path for content upload while AWAITING_CONTENT; null otherwise.
+        stored_at_utc:
+          type: [string, 'null']
+          format: date-time
+
+    ProcessingJobCreate:
+      type: object
+      required: [recording_id, pipeline_profile]
+      additionalProperties: false
+      properties:
+        recording_id: { $ref: '#/components/schemas/RecordingId' }
+        pipeline_profile:
+          type: string
+          enum: [EGEMAPS_V02_FUNCTIONALS_V1]
+          description: Named, versioned extraction profile. It maps to an immutable openSMILE config in the worker.
+
+    ProcessingJob:
+      type: object
+      required: [job_id, recording_id, session_id, pipeline_profile, status, attempt, created_at_utc, updated_at_utc]
+      additionalProperties: false
+      properties:
+        job_id: { $ref: '#/components/schemas/JobId' }
+        recording_id: { $ref: '#/components/schemas/RecordingId' }
+        session_id: { $ref: '#/components/schemas/SessionId' }
+        pipeline_profile: { type: string, enum: [EGEMAPS_V02_FUNCTIONALS_V1] }
+        status:
+          type: string
+          enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED]
+        attempt: { type: integer, minimum: 0, maximum: 3 }
+        quality_outcome:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [status, flags]
+              additionalProperties: false
+              properties:
+                status: { type: string, enum: [PASS, DEGRADED, FAIL] }
+                flags:
+                  type: array
+                  uniqueItems: true
+                  items: { type: string, enum: [CLIPPING, LOW_LEVEL, SHORT_DURATION, LONG_DURATION, HIGH_NOISE, LOW_SPEECH_RATIO, SILENCE, FORMAT_MISMATCH] }
+          description: Present once the worker has run quality control. A FAIL outcome results in status FAILED with failure.code AUDIO_QUALITY_FAILED, so the worker can ask for a re-recording.
+        feature_record_id:
+          oneOf:
+            - $ref: '#/components/schemas/FeatureRecordId'
+            - type: 'null'
+          description: Set when status is SUCCEEDED. Feature values are not exposed through this API.
+        failure:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [code, retryable]
+              additionalProperties: false
+              properties:
+                code: { type: string, enum: [AUDIO_QUALITY_FAILED, AUDIO_DECODE_FAILED, EXTRACTION_ERROR, TIMEOUT, CONSENT_WITHDRAWN, INTERNAL_ERROR] }
+                retryable: { type: boolean }
+        created_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        updated_at_utc: { $ref: '#/components/schemas/Timestamp' }
+      allOf:
+        - if: { properties: { status: { const: SUCCEEDED } } }
+          then:
+            required: [feature_record_id, quality_outcome]
+            properties: { feature_record_id: { $ref: '#/components/schemas/FeatureRecordId' } }
+        - if: { properties: { status: { enum: [FAILED, CANCELLED] } } }
+          then:
+            required: [failure]
+            properties: { failure: { type: object } }
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details. `detail` is a fixed, non-identifying message. `errors` gives field paths and rules, never values.
+      required: [type, title, status, code, correlation_id]
+      additionalProperties: false
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        code:
+          type: string
+          enum:
+            - VALIDATION_FAILED
+            - UNAUTHENTICATED
+            - FORBIDDEN
+            - NOT_FOUND
+            - IDEMPOTENCY_CONFLICT
+            - RESOURCE_CONFLICT
+            - CONSENT_NOT_ACTIVE
+            - CONSENT_PARTICIPANT_MISMATCH
+            - CONSENT_SCOPE_INCOMPLETE
+            - ADULT_CONFIRMATION_REQUIRED
+            - DATA_ORIGIN_NOT_PERMITTED
+            - CHECKSUM_MISMATCH
+            - RECORDING_NOT_UPLOADED
+            - PAYLOAD_TOO_LARGE
+            - UNSUPPORTED_MEDIA_TYPE
+            - RATE_LIMITED
+            - INTERNAL_ERROR
+        detail: { type: string, maxLength: 300 }
+        correlation_id: { type: string, format: uuid }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [pointer, rule]
+            additionalProperties: false
+            properties:
+              pointer: { type: string, description: JSON Pointer to the offending field. }
+              rule: { type: string }
+
+  examples:
+    ConsentEventCreateExample:
+      summary: Synthetic Kannada consent, research reuse granted, model training declined
+      value:
+        consent_event_id: ce_00000000000000000000000000000001
+        participant_ref: ppt_00000000000000000000000000000001
+        consent_form: { form_id: screening-consent, form_version: 0.1.0, language_tag: kn-IN }
+        scope_decisions:
+          - { scope: SCREENING_PARTICIPATION, granted: true }
+          - { scope: AUDIO_RECORDING, granted: true }
+          - { scope: AUDIO_RETENTION, granted: false }
+          - { scope: RESEARCH_FEATURE_REUSE, granted: true }
+          - { scope: MODEL_TRAINING, granted: false }
+          - { scope: QUALITY_REVIEW, granted: false }
+        capture:
+          captured_at_utc: '2026-10-17T09:05:00Z'
+          method: SIGNED_ON_DEVICE
+          read_aloud: true
+          comprehension_confirmed: true
+          witness_present: false
+        safeguards: { adult_confirmed: true, assisted_consent: false }
+    ConsentEventExample:
+      value:
+        consent_event_id: ce_00000000000000000000000000000001
+        participant_ref: ppt_00000000000000000000000000000001
+        consent_form: { form_id: screening-consent, form_version: 0.1.0, language_tag: kn-IN }
+        scope_decisions:
+          - { scope: SCREENING_PARTICIPATION, granted: true }
+          - { scope: AUDIO_RECORDING, granted: true }
+          - { scope: AUDIO_RETENTION, granted: false }
+          - { scope: RESEARCH_FEATURE_REUSE, granted: true }
+          - { scope: MODEL_TRAINING, granted: false }
+          - { scope: QUALITY_REVIEW, granted: false }
+        status: ACTIVE
+        effective_scopes: [SCREENING_PARTICIPATION, AUDIO_RECORDING, RESEARCH_FEATURE_REUSE]
+        captured_by_worker_ref: wkr_00000000000000000000000000000001
+        captured_at_utc: '2026-10-17T09:05:00Z'
+        received_at_utc: '2026-10-17T11:40:12Z'
+        expires_at_utc: null
+    ConsentWithdrawalCreateExample:
+      value:
+        withdrawal_id: cw_00000000000000000000000000000001
+        scopes: [RESEARCH_FEATURE_REUSE]
+        withdrawn_at_utc: '2026-10-20T08:00:00Z'
+        channel: IN_PERSON_ASHA
+        reason_code: NOT_STATED
+    ConsentWithdrawalExample:
+      value:
+        withdrawal_id: cw_00000000000000000000000000000001
+        consent_event_id: ce_00000000000000000000000000000001
+        withdrawn_scopes: [RESEARCH_FEATURE_REUSE, MODEL_TRAINING]
+        resulting_status: PARTIALLY_WITHDRAWN
+        downstream_actions:
+          - { action: EXCLUDE_FROM_RESEARCH_EXPORT, status: SCHEDULED }
+          - { action: CANCEL_QUEUED_PROCESSING, status: NOT_APPLICABLE }
+        recorded_at_utc: '2026-10-20T08:00:03Z'
+    ConsentStatusExample:
+      value:
+        participant_ref: ppt_00000000000000000000000000000001
+        status: PARTIALLY_WITHDRAWN
+        active_consent_event_id: ce_00000000000000000000000000000001
+        effective_scopes: [SCREENING_PARTICIPATION, AUDIO_RECORDING]
+        as_of_utc: '2026-10-20T08:01:00Z'
+    VoiceSessionCreateExample:
+      value:
+        session_id: sess_00000000000000000000000000000001
+        participant_ref: ppt_00000000000000000000000000000001
+        consent_event_id: ce_00000000000000000000000000000001
+        language_tag: kn-IN
+        prompt_set: { prompt_set_id: baseline-voice-tasks, prompt_set_version: 0.1.0 }
+        captured_at_utc: '2026-10-17T09:12:00Z'
+        device: { device_class: ANDROID_PHONE, app_version: 0.1.0, os_family: ANDROID }
+        data_origin: SYNTHETIC
+    VoiceSessionExample:
+      value:
+        session_id: sess_00000000000000000000000000000001
+        participant_ref: ppt_00000000000000000000000000000001
+        consent_event_id: ce_00000000000000000000000000000001
+        language_tag: kn-IN
+        status: PROCESSED
+        data_origin: SYNTHETIC
+        recordings:
+          - recording_id: rec_00000000000000000000000000000001
+            session_id: sess_00000000000000000000000000000001
+            prompt_id: sustained-vowel-a
+            format: WAV_PCM_S16LE
+            duration_seconds: 32.4
+            sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+            upload_status: STORED
+            upload_path: null
+            stored_at_utc: '2026-10-17T11:41:30Z'
+        created_at_utc: '2026-10-17T11:40:20Z'
+    RecordingCreateExample:
+      value:
+        recording_id: rec_00000000000000000000000000000001
+        prompt_id: sustained-vowel-a
+        format: WAV_PCM_S16LE
+        sampling_rate_hz: 16000
+        channels: 1
+        duration_seconds: 32.4
+        size_bytes: 1036844
+        sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+        recorded_at_utc: '2026-10-17T09:12:40Z'
+        device_prescreen: { peak_dbfs: -3.2, clipping_detected: false, low_level_detected: false }
+    RecordingExample:
+      value:
+        recording_id: rec_00000000000000000000000000000001
+        session_id: sess_00000000000000000000000000000001
+        prompt_id: sustained-vowel-a
+        format: WAV_PCM_S16LE
+        duration_seconds: 32.4
+        sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+        upload_status: AWAITING_CONTENT
+        upload_path: /v1/voice-sessions/sess_00000000000000000000000000000001/recordings/rec_00000000000000000000000000000001/content
+        stored_at_utc: null
+    ProcessingJobCreateExample:
+      value:
+        recording_id: rec_00000000000000000000000000000001
+        pipeline_profile: EGEMAPS_V02_FUNCTIONALS_V1
+    ProcessingJobQueuedExample:
+      value:
+        job_id: job_00000000000000000000000000000001
+        recording_id: rec_00000000000000000000000000000001
+        session_id: sess_00000000000000000000000000000001
+        pipeline_profile: EGEMAPS_V02_FUNCTIONALS_V1
+        status: QUEUED
+        attempt: 0
+        quality_outcome: null
+        feature_record_id: null
+        failure: null
+        created_at_utc: '2026-10-17T11:41:31Z'
+        updated_at_utc: '2026-10-17T11:41:31Z'
+    ProcessingJobSucceededExample:
+      value:
+        job_id: job_00000000000000000000000000000001
+        recording_id: rec_00000000000000000000000000000001
+        session_id: sess_00000000000000000000000000000001
+        pipeline_profile: EGEMAPS_V02_FUNCTIONALS_V1
+        status: SUCCEEDED
+        attempt: 1
+        quality_outcome: { status: PASS, flags: [] }
+        feature_record_id: frec_00000000000000000000000000000001
+        failure: null
+        created_at_utc: '2026-10-17T11:41:31Z'
+        updated_at_utc: '2026-10-17T11:41:40Z'
+    ProcessingJobFailedExample:
+      value:
+        job_id: job_00000000000000000000000000000002
+        recording_id: rec_00000000000000000000000000000002
+        session_id: sess_00000000000000000000000000000001
+        pipeline_profile: EGEMAPS_V02_FUNCTIONALS_V1
+        status: FAILED
+        attempt: 1
+        quality_outcome: { status: FAIL, flags: [SILENCE] }
+        feature_record_id: null
+        failure: { code: AUDIO_QUALITY_FAILED, retryable: false }
+        created_at_utc: '2026-10-17T11:42:00Z'
+        updated_at_utc: '2026-10-17T11:42:05Z'
+    ProblemValidationExample:
+      value:
+        type: https://mental-wellness-platform/problems/validation-failed
+        title: Request validation failed
+        status: 400
+        code: VALIDATION_FAILED
+        detail: One or more fields failed validation.
+        correlation_id: 6f1c2b8e-3d4a-4f5b-9c6d-7e8f9a0b1c2d
+        errors:
+          - { pointer: /session_id, rule: pattern }
+    ProblemConsentExample:
+      value:
+        type: https://mental-wellness-platform/problems/consent-not-active
+        title: Consent not active
+        status: 422
+        code: CONSENT_NOT_ACTIVE
+        detail: The required consent scope is not in effect for this participant.
+        correlation_id: 6f1c2b8e-3d4a-4f5b-9c6d-7e8f9a0b1c2d

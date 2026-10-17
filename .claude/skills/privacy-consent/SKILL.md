@@ -11,9 +11,9 @@ Implement and review informed-consent workflows, data-minimisation controls, and
 
 ## Prerequisites
 
-- Read `docs/privacy/data-governance.md` before any implementation.
+- Read `docs/privacy/data-governance.md` and `docs/privacy/consent-and-data-lifecycle.md` before any implementation.
 - Understand the consent event model: every feature record requires a `consent_event_id` reference.
-- Know the permitted purposes: `RESEARCH_ONLY`, `CLINICAL_SUPPORT`, `MODEL_TRAINING`, `QUALITY_REVIEW`.
+- Know the consent scopes (DRAFT, pending approval): `SCREENING_PARTICIPATION`, `AUDIO_RECORDING`, `AUDIO_RETENTION`, `RESEARCH_FEATURE_REUSE`, `MODEL_TRAINING`, `QUALITY_REVIEW` — see `docs/privacy/consent-and-data-lifecycle.md`.
 
 ## Workflow
 

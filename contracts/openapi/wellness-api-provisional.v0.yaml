@@ -1,0 +1,340 @@
+openapi: 3.1.0
+info:
+  title: Mental Wellness Platform — Provisional APIs
+  version: 0.1.0-provisional
+  summary: Outline contracts for capabilities that are not in the first slice. They are not ready to implement.
+  description: |
+    **PROVISIONAL. Do not implement against this document.** It sketches the remaining
+    capabilities so module boundaries and authorization can be reviewed early. Each area needs
+    requirements confirmed by the named stakeholders before it moves to a versioned `v1` contract.
+
+    It uses the same cross-cutting rules as `wellness-api.v1.yaml`: OIDC, `X-Correlation-ID`,
+    `Idempotency-Key` on creates, RFC 9457 problem responses, audit events and consent prerequisites.
+
+    **Clinical safety:** screening assessments here are structured, human-entered questionnaire
+    results and clinician judgements. No operation returns or accepts an automated diagnosis. Any
+    future model output would be shown to clinicians only as an indicator, through a separately
+    approved contract (see `contracts/inference-contract.json` and docs/research/model-validation-plan.md).
+
+    **External systems:** no hospital, government or third-party health system is integrated or
+    available. The integration section only defines where an adapter would sit, and it is
+    blocked on data-sharing agreements.
+servers:
+  - url: http://localhost:8080
+security:
+  - oidc: []
+tags:
+  - name: cases
+    description: 'PROVISIONAL. Needs: programme team (enrolment fields), privacy lead (identity data minimisation).'
+  - name: questionnaires
+    description: 'PROVISIONAL. Needs: clinical lead (instrument choice, licensing, validated Kannada translation, scoring rules).'
+  - name: observations
+    description: 'PROVISIONAL. Needs: clinical lead and programme team (observation catalogue).'
+  - name: screening-review
+    description: 'PROVISIONAL. Needs: clinical lead (review workflow, escalation thresholds, safety protocol).'
+  - name: referrals
+    description: 'PROVISIONAL. Needs: clinical lead and programme team (referral pathways, follow-up schedule, urgent-risk protocol).'
+  - name: integration
+    description: 'PROVISIONAL and BLOCKED. Needs: signed data-sharing agreement, partner technical specification, legal review. No partner system is identified.'
+
+paths:
+  /v1/cases:
+    post:
+      tags: [cases]
+      operationId: createCase
+      summary: Enrol a participant and open a case
+      description: Creates a pseudonymous participant reference and a case. Direct identifiers (name, phone, village) are sent to the identity module in the same request and are stored there only. They are never returned by any other API.
+      x-status: PROVISIONAL
+      x-roles: [ASHA_WORKER]
+      x-consent-prerequisite: Identity details may be stored only after the participant agrees to be contacted for screening. That needs a consent wording decision.
+      x-audit-events: [CASE_CREATED, IDENTITY_RECORD_CREATED]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CaseCreate' }
+      responses:
+        '201':
+          description: Case created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/cases/{caseId}:
+    get:
+      tags: [cases]
+      operationId: getCase
+      summary: Retrieve a case (pseudonymous view)
+      description: Returns the case without direct identifiers. The identity view is a separate, audited operation that is not defined yet.
+      x-status: PROVISIONAL
+      x-roles: [ASHA_WORKER, CLINICIAN]
+      x-data-access: Assigned participants only.
+      x-audit-events: [CASE_READ]
+      parameters:
+        - $ref: '#/components/parameters/CaseId'
+      responses:
+        '200':
+          description: Case.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /v1/cases/{caseId}/questionnaire-responses:
+    post:
+      tags: [questionnaires]
+      operationId: submitQuestionnaireResponse
+      summary: Submit a completed questionnaire
+      description: The instrument and its scoring rules are not chosen yet. Any instrument used must be licensed for this use and have a validated Kannada translation.
+      x-status: PROVISIONAL
+      x-roles: [ASHA_WORKER]
+      x-consent-prerequisite: SCREENING_PARTICIPATION
+      x-audit-events: [QUESTIONNAIRE_SUBMITTED]
+      parameters:
+        - $ref: '#/components/parameters/CaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionnaireResponseCreate' }
+      responses:
+        '201': { description: Recorded. }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /v1/cases/{caseId}/observations:
+    post:
+      tags: [observations]
+      operationId: submitObservations
+      summary: Submit structured observations
+      description: Structured, coded observations recorded by the worker. Free-text notes are excluded until a policy on sensitive free text is agreed.
+      x-status: PROVISIONAL
+      x-roles: [ASHA_WORKER]
+      x-consent-prerequisite: SCREENING_PARTICIPATION
+      x-audit-events: [OBSERVATIONS_SUBMITTED]
+      parameters:
+        - $ref: '#/components/parameters/CaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [observation_set_id, observations]
+              properties:
+                observation_set_id: { type: string }
+                observations:
+                  type: array
+                  items:
+                    type: object
+                    required: [code, value]
+                    properties:
+                      code: { type: string }
+                      value: { type: [string, number, boolean] }
+      responses:
+        '201': { description: Recorded. }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /v1/screening-assessments:
+    get:
+      tags: [screening-review]
+      operationId: listAssessmentsForReview
+      summary: Clinician review queue
+      description: Lists cases awaiting clinician review, prioritised by the urgent-risk protocol once that is defined.
+      x-status: PROVISIONAL
+      x-roles: [CLINICIAN]
+      x-data-access: Clinician's assigned catchment only.
+      x-audit-events: [REVIEW_QUEUE_READ]
+      responses:
+        '200':
+          description: Review queue.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ScreeningAssessment' }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/screening-assessments/{assessmentId}/reviews:
+    post:
+      tags: [screening-review]
+      operationId: submitClinicianReview
+      summary: Record a clinician's review decision
+      description: Records a human clinician's decision. This is the only place a screening outcome is recorded, and it is always attributed to a named clinician.
+      x-status: PROVISIONAL
+      x-roles: [CLINICIAN]
+      x-consent-prerequisite: SCREENING_PARTICIPATION
+      x-audit-events: [CLINICIAN_REVIEW_RECORDED]
+      parameters:
+        - name: assessmentId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^asmt_[a-f0-9]{32}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClinicianReviewCreate' }
+      responses:
+        '201': { description: Review recorded. }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /v1/referrals:
+    post:
+      tags: [referrals]
+      operationId: createReferral
+      summary: Create a referral
+      description: Creates a referral to a care pathway. Pathways are configuration supplied by the programme. No external booking or messaging system is called.
+      x-status: PROVISIONAL
+      x-roles: [CLINICIAN]
+      x-consent-prerequisite: SCREENING_PARTICIPATION. Contacting the participant needs identity access under its own audit.
+      x-audit-events: [REFERRAL_CREATED]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferralCreate' }
+      responses:
+        '201': { description: Referral created. }
+        default: { $ref: '#/components/responses/Problem' }
+  /v1/referrals/{referralId}/follow-ups:
+    post:
+      tags: [referrals]
+      operationId: recordFollowUp
+      summary: Record a follow-up contact or outcome
+      x-status: PROVISIONAL
+      x-roles: [ASHA_WORKER, CLINICIAN]
+      x-audit-events: [FOLLOW_UP_RECORDED]
+      parameters:
+        - name: referralId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^ref_[a-f0-9]{32}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [follow_up_id, outcome_code, recorded_at_utc]
+              properties:
+                follow_up_id: { type: string, pattern: '^fu_[a-f0-9]{32}$' }
+                outcome_code: { type: string, enum: [CONTACTED, NOT_REACHABLE, ATTENDED, NOT_ATTENDED, DECLINED, ESCALATED] }
+                recorded_at_utc: { type: string, format: date-time }
+      responses:
+        '201': { description: Recorded. }
+        default: { $ref: '#/components/responses/Problem' }
+
+  /internal/v1/integration/outbound-referrals:
+    post:
+      tags: [integration]
+      operationId: exportReferralToPartner
+      summary: '(BLOCKED) Hand a referral to an authorised partner system'
+      description: |
+        Placeholder for an adapter boundary. The core platform hands a minimal referral message to
+        an adapter, and the adapter alone knows the partner's protocol (for example HL7 FHIR).
+        **No partner system is identified, integrated or authorised.** Do not implement until a
+        data-sharing agreement, partner specification and legal approval exist.
+      x-status: BLOCKED
+      x-roles: [INTEGRATION_ADAPTER]
+      x-consent-prerequisite: A specific consent scope for sharing with the named partner. It is not defined yet and is not part of the current scope list.
+      x-audit-events: [PARTNER_EXPORT_REQUESTED]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Undefined until partner requirements are known.
+      responses:
+        '501': { description: Not implemented. }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: http://localhost:8081/realms/wellness-local/.well-known/openid-configuration
+  parameters:
+    CaseId:
+      name: caseId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^case_[a-f0-9]{32}$' }
+  responses:
+    Problem:
+      description: RFC 9457 problem (same shape as wellness-api.v1.yaml).
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status, code]
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              code: { type: string }
+              correlation_id: { type: string, format: uuid }
+  schemas:
+    CaseCreate:
+      type: object
+      required: [case_id, participant_ref, identity]
+      properties:
+        case_id: { type: string, pattern: '^case_[a-f0-9]{32}$' }
+        participant_ref: { type: string, pattern: '^ppt_[a-f0-9]{32}$' }
+        identity:
+          type: object
+          description: Routed to the identity module only. The field list needs data-minimisation review.
+          properties:
+            display_name: { type: string }
+            contact_phone: { type: string }
+            locality_code: { type: string, description: 'Coded area, not an address.' }
+    Case:
+      type: object
+      required: [case_id, participant_ref, status]
+      properties:
+        case_id: { type: string }
+        participant_ref: { type: string }
+        status: { type: string, enum: [OPEN, UNDER_REVIEW, REFERRED, CLOSED] }
+        assigned_worker_ref: { type: string }
+    QuestionnaireResponseCreate:
+      type: object
+      required: [response_id, instrument_id, instrument_version, language_tag, items]
+      properties:
+        response_id: { type: string, pattern: '^qr_[a-f0-9]{32}$' }
+        instrument_id: { type: string }
+        instrument_version: { type: string }
+        language_tag: { type: string, enum: [en-IN, kn-IN] }
+        items:
+          type: array
+          items:
+            type: object
+            required: [item_id, answer_code]
+            properties:
+              item_id: { type: string }
+              answer_code: { type: string }
+    ScreeningAssessment:
+      type: object
+      required: [assessment_id, case_id, status]
+      properties:
+        assessment_id: { type: string }
+        case_id: { type: string }
+        status: { type: string, enum: [AWAITING_REVIEW, REVIEWED] }
+        questionnaire_summary:
+          type: object
+          description: Instrument score computed by the instrument's published scoring rule. Shown with the instrument's own interpretation guidance. It is not a diagnosis.
+        voice_processing_summary:
+          type: object
+          description: Audio-quality status only. No acoustic features or model outputs are shown to clinicians in this version.
+    ClinicianReviewCreate:
+      type: object
+      required: [review_id, decision, reviewed_at_utc]
+      properties:
+        review_id: { type: string, pattern: '^rvw_[a-f0-9]{32}$' }
+        decision: { type: string, enum: [NO_FURTHER_ACTION, MONITOR, REFER, URGENT_REFER] }
+        reviewed_at_utc: { type: string, format: date-time }
+    ReferralCreate:
+      type: object
+      required: [referral_id, case_id, pathway_code, urgency]
+      properties:
+        referral_id: { type: string, pattern: '^ref_[a-f0-9]{32}$' }
+        case_id: { type: string }
+        pathway_code: { type: string }
+        urgency: { type: string, enum: [ROUTINE, PRIORITY, URGENT] }

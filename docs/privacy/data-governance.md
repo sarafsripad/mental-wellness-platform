@@ -6,6 +6,8 @@
 
 ---
 
+> **Update 2026-10-17:** a granular consent-scope model and full data lifecycle are proposed in [consent-and-data-lifecycle.md](consent-and-data-lifecycle.md) (DRAFT, pending named approval). Until it is approved, the purposes below remain the recorded baseline; no participant data has been collected under either.
+
 ## Purpose
 
 This document defines the data governance requirements for the Mental Wellness Platform. It applies to all data collection, storage, processing, and transfer operations in both workstreams. All engineers, agents, and contractors working on this platform must read and comply with these requirements.
@@ -24,7 +26,7 @@ Fields that directly identify a participant:
 - Any government-issued ID reference
 
 **Rules:**
-- Must never appear in `contracts/voice-feature-schema.json` records.
+- Must never appear in `contracts/voice-features/feature-record.schema.json` records.
 - Must never appear in feature stores, training datasets, or inference logs.
 - Stored only in the identity service with access logging.
 - Transmitted only over encrypted channels with mutual authentication.
@@ -57,7 +59,7 @@ Raw audio files captured from participants.
 Acoustic feature vectors extracted from voice recordings.
 
 **Rules:**
-- Must conform to `contracts/voice-feature-schema.json`.
+- Must conform to `contracts/voice-features/feature-record.schema.json`.
 - Must include a valid `consent_reference`.
 - Feature names must be acoustic descriptors — never clinical labels.
 - May be used for purposes listed in `consent_reference.permitted_purposes` only.

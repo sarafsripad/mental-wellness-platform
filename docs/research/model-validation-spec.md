@@ -31,7 +31,7 @@ These constraints apply before any quantitative threshold is evaluated:
 
 An acoustic indicator task that provides a decision-support signal for clinician review of potential wellness concerns. Not a diagnostic tool.
 
-**Input:** Voice feature record conforming to `contracts/voice-feature-schema.json` with `audio_quality.status` of `PASS` or `DEGRADED` (with justification).
+**Input:** Voice feature record conforming to `contracts/voice-features/feature-record.schema.json` (v2.0.0) with `quality.status` of `PASS` or `DEGRADED` (with justification). The research workflow that produces evaluation evidence is in [model-validation-plan.md](model-validation-plan.md).
 
 **Minimum performance thresholds (held-out set):**
 

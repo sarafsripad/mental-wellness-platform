@@ -21,7 +21,7 @@ Invoke with `/integrate` followed by your scope. Examples:
 
 When this skill is invoked:
 
-1. **Read both contracts.** Load `contracts/voice-feature-schema.json` and `contracts/inference-contract.json`. Confirm versions are consistent with what both workstreams reference.
+1. **Read both contracts.** Load `contracts/voice-features/feature-record.schema.json` and `contracts/inference-contract.json`. Confirm versions are consistent with what both workstreams reference.
 2. **Validate schema compatibility.** If a new schema version is proposed, check that the ingestion service (Workstream A producer) and the extraction pipeline (Workstream B consumer) both reference the same version. Incompatibilities must be resolved before merging.
 3. **Trace the pseudonymisation boundary.** Confirm that the handoff point (ingestion service → feature extraction) carries only pseudonymous session IDs — never direct identifiers. Check the actual code, not just the schema.
 4. **Trace the consent chain.** Follow a session from consent capture (mobile) → consent event stored (consent service) → consent reference in feature record → consent check in extraction pipeline. Identify any break in the chain.

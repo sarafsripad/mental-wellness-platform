@@ -43,5 +43,5 @@ Must not run: destructive database commands outside Flyway, `curl` to production
 
 ## Contracts to Respect
 
-- `contracts/voice-feature-schema.json` — ingestion service must produce records conforming to this schema.
+- `contracts/voice-features/feature-record.schema.json` — ingestion service must produce records conforming to this schema.
 - `contracts/inference-contract.json` — routing service must consume and forward conforming requests.

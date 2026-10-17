@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # check-secrets.sh
-# Scans uncommitted changes for common secret patterns.
+# Scans uncommitted changes and untracked files for common secret patterns.
 # Exits 0 with a warning if patterns are found (advisory, non-blocking).
-# Exits 1 only for high-confidence patterns (e.g., real AWS access keys).
+# Exits 2 only for high-confidence patterns (e.g., real AWS access keys).
+# Exit code 2 makes Claude Code feed stderr back to Claude as a blocking error.
 #
 # Designed to be fast and non-destructive. Does not modify any files.
 
@@ -12,7 +13,13 @@ set -uo pipefail
 if git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
   # Scan staged + unstaged changes against HEAD
   SCAN_CONTENT="$(git diff HEAD 2>/dev/null || git diff 2>/dev/null || true)"
-  SCAN_SOURCE="git diff"
+  # Also scan untracked (not ignored) text files, which git diff does not show
+  while IFS= read -r -d '' f; do
+    if [[ -f "$f" ]] && grep -Iq . "$f" 2>/dev/null; then
+      SCAN_CONTENT+=$'\n'"$(cat "$f")"
+    fi
+  done < <(git ls-files --others --exclude-standard -z 2>/dev/null)
+  SCAN_SOURCE="uncommitted changes"
 else
   SCAN_CONTENT=""
   SCAN_SOURCE="none"
@@ -31,9 +38,9 @@ check_pattern() {
   local pattern="$2"
   local severity="$3"  # BLOCK or WARN
 
-  if echo "$SCAN_CONTENT" | grep -qE "$pattern" 2>/dev/null; then
+  if grep -qE -- "$pattern" <<<"$SCAN_CONTENT" 2>/dev/null; then
     if [[ "$severity" == "BLOCK" ]]; then
-      echo "  SECRET [BLOCK] $label — found in $SCAN_SOURCE. Remove before committing."
+      echo "  SECRET [BLOCK] $label — found in $SCAN_SOURCE. Remove before committing." >&2
       BLOCKING_FOUND=$((BLOCKING_FOUND + 1))
     else
       echo "  SECRET [WARN]  $label — found in $SCAN_SOURCE. Verify this is not a real secret."
@@ -61,9 +68,9 @@ check_pattern "Bearer token in diff"        'Authorization:\s*Bearer\s+[A-Za-z0-
 check_pattern "Direct identifier in feature" '"(name|phone|address|date_of_birth)"\s*:' "WARN"
 
 if [[ $BLOCKING_FOUND -gt 0 ]]; then
-  echo ""
-  echo "Secret check: $BLOCKING_FOUND BLOCKING pattern(s) found. Remove secrets before proceeding."
-  exit 1
+  echo "" >&2
+  echo "Secret check: $BLOCKING_FOUND BLOCKING pattern(s) found. Remove secrets before proceeding." >&2
+  exit 2
 elif [[ $WARNINGS_FOUND -gt 0 ]]; then
   echo ""
   echo "Secret check: $WARNINGS_FOUND warning(s). Review the above before committing."
