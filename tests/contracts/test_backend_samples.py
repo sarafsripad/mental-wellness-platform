@@ -72,6 +72,11 @@ def test_recorded_traffic_matches_contract(sample_file, registry):
     if "$ref" in resp:
         resp_ptr = resp["$ref"][1:]
         resp = _get(doc, resp["$ref"])
+    if sample.get("binary_response"):
+        # e.g. audio bytes: check the media type is one the contract declares, not the content.
+        assert any(sample["content_type"].startswith(m) for m in resp.get("content", {})), \
+            f"undocumented media type {sample['content_type']}"
+        return
     if sample["response"] is None:
         assert "content" not in resp, "contract expects a body"
         return

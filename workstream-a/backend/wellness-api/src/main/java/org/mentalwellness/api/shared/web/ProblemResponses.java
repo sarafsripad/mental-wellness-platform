@@ -21,7 +21,7 @@ public class ProblemResponses {
 		this.objectMapper = objectMapper;
 	}
 
-	public void write(HttpServletResponse response, ProblemCode code) throws IOException {
+	public void write(HttpServletResponse response, ProblemKind code) throws IOException {
 		UUID correlationId = CorrelationId.current().orElseGet(UUID::randomUUID);
 		response.setStatus(code.status().value());
 		response.setContentType(PROBLEM_JSON.toString());

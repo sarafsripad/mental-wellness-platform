@@ -106,7 +106,7 @@ public class ApiExceptionHandler {
 		return problem(ProblemCode.INTERNAL_ERROR, List.of());
 	}
 
-	private static ResponseEntity<ApiProblem> problem(ProblemCode code, List<ApiProblem.FieldError> errors) {
+	private static ResponseEntity<ApiProblem> problem(ProblemKind code, List<ApiProblem.FieldError> errors) {
 		UUID correlationId = CorrelationId.current().orElseGet(UUID::randomUUID);
 		return ResponseEntity.status(code.status())
 			.contentType(ProblemResponses.PROBLEM_JSON)

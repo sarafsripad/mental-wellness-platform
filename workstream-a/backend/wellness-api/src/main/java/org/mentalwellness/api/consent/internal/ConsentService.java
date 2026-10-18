@@ -183,7 +183,8 @@ class ConsentService implements ConsentGate, ParticipantAccess {
 	// --- ConsentGate and ParticipantAccess -----------------------------------------
 
 	@Override
-	@Transactional(readOnly = true)
+	// A refused check is an answer, not a failure: it must not mark the caller's transaction rollback-only.
+	@Transactional(readOnly = true, noRollbackFor = DomainException.class)
 	public ConsentSnapshot require(String consentEventId, String participantRef, Set<ConsentScope> required,
 			Instant capturedAt) {
 		ConsentRepository.StoredEvent stored = this.repository.findEvent(consentEventId)
@@ -196,7 +197,8 @@ class ConsentService implements ConsentGate, ParticipantAccess {
 	}
 
 	@Override
-	@Transactional(readOnly = true)
+	// A refused check is an answer, not a failure: it must not mark the caller's transaction rollback-only.
+	@Transactional(readOnly = true, noRollbackFor = DomainException.class)
 	public ConsentSnapshot requireStillActive(String consentEventId, Set<ConsentScope> required) {
 		ConsentRepository.StoredEvent stored = this.repository.findEvent(consentEventId)
 			.orElseThrow(() -> new DomainException(ProblemCode.CONSENT_NOT_ACTIVE));

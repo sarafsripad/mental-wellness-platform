@@ -30,7 +30,7 @@ expect "health is anonymous"                      200 ""                "$API/ac
 expect "no token is rejected"                     401 UNAUTHENTICATED   "$API/v1/consent-events/ce_00000000000000000000000000000001"
 expect "garbage token is rejected"                401 UNAUTHENTICATED   -H "Authorization: Bearer not.a.jwt" "$API/v1/voice-sessions"
 expect "real ASHA token accepted; unknown event not found" 404 NOT_FOUND       -H "Authorization: Bearer $ASHA" "$API/v1/consent-events/ce_00000000000000000000000000000001"
-expect "real worker token is accepted (no route yet)" 404 NOT_FOUND     -H "Authorization: Bearer $WORKER" "$API/internal/v1/processing-jobs/claim"
+expect "real worker token accepted; claim is POST-only" 405 METHOD_NOT_ALLOWED -H "Authorization: Bearer $WORKER" "$API/internal/v1/processing-jobs/claim"
 expect "actuator env is not exposed"              404 NOT_FOUND         -H "Authorization: Bearer $ASHA" "$API/actuator/env"
 # Tampering must change real bytes: the last base64url character of an RS256 signature carries
 # only 2 data bits, so swapping it can leave the decoded signature unchanged.
@@ -116,6 +116,45 @@ else
 fi
 SESSION_NOW=$(curl -s -H "Authorization: Bearer $ASHA" "$API/v1/voice-sessions/$SESS")
 [[ "$SESSION_NOW" == *'"status":"CANCELLED"'* ]] && { echo "  PASS session is CANCELLED"; PASS=$((PASS + 1)); } || { echo "  FAIL session: ${SESSION_NOW:0:200}"; FAIL=$((FAIL + 1)); }
+
+# --- processing queue and worker API (S6) ---------------------------------------
+uuid() { python3 -c 'import uuid;print(uuid.uuid4())'; }
+CE3="ce_$(hex)"; PPT3="ppt_$(hex)"; SESS3="sess_$(hex)"; REC3="rec_$(hex)"; WID="wrk_$(openssl rand -hex 8)"
+CONSENT3="${CONSENT//$CE/$CE3}"; CONSENT3="${CONSENT3//$PPT/$PPT3}"
+curl -s -o /dev/null -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(uuid)" "${J[@]}" -d "$CONSENT3" "$API/v1/consent-events"
+SESSION3="${SESSION//$SESS/$SESS3}"; SESSION3="${SESSION3//$PPT2/$PPT3}"; SESSION3="${SESSION3//$CE2/$CE3}"
+curl -s -o /dev/null -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(uuid)" "${J[@]}" -d "$SESSION3" "$API/v1/voice-sessions"
+curl -s -o /dev/null -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(uuid)" "${J[@]}" -d "${RECORDING//$REC/$REC3}" "$API/v1/voice-sessions/$SESS3/recordings"
+curl -s -o /dev/null -X PUT -H "Authorization: Bearer $ASHA" -H "Content-Type: audio/wav" -H "X-Content-SHA256: $SHA" --data-binary "@$TMPD/probe.wav" "$API/v1/voice-sessions/$SESS3/recordings/$REC3/content"
+JOB=$(curl -s -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(uuid)" "${J[@]}" -d "{\"recording_id\":\"$REC3\",\"pipeline_profile\":\"EGEMAPS_V02_FUNCTIONALS_V1\"}" "$API/v1/processing-jobs")
+JOB_ID=$(echo "$JOB" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("job_id",""))')
+[[ "$JOB" == *'"status":"QUEUED"'* ]] && { echo "  PASS processing job queued"; PASS=$((PASS + 1)); } || { echo "  FAIL submit job: ${JOB:0:200}"; FAIL=$((FAIL + 1)); }
+expect "ASHA token cannot claim jobs"             403 FORBIDDEN -H "Authorization: Bearer $ASHA" -H "X-Worker-Id: $WID" "${J[@]}" -d '{"supported_profiles":["EGEMAPS_V02_FUNCTIONALS_V1"],"worker_version":"0.1.0"}' "$API/internal/v1/processing-jobs/claim"
+LEASE=$(curl -s -H "Authorization: Bearer $WORKER" -H "X-Worker-Id: $WID" "${J[@]}" -d '{"supported_profiles":["EGEMAPS_V02_FUNCTIONALS_V1"],"worker_version":"0.1.0"}' "$API/internal/v1/processing-jobs/claim")
+TOKEN_L=$(echo "$LEASE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("lease_token",""))' 2>/dev/null)
+LEASED_JOB=$(echo "$LEASE" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("job_id",""))' 2>/dev/null)
+[[ -n "$TOKEN_L" && "$LEASED_JOB" == "$JOB_ID" ]] && { echo "  PASS real worker token claims the job"; PASS=$((PASS + 1)); } || { echo "  FAIL claim: ${LEASE:0:200}"; FAIL=$((FAIL + 1)); }
+LH=(-H "Authorization: Bearer $WORKER" -H "X-Lease-Token: $TOKEN_L" -H "X-Worker-Id: $WID" -H "X-Correlation-ID: $(uuid)")
+curl -s -o "$TMPD/fetched.wav" "${LH[@]}" "$API/internal/v1/processing-jobs/$JOB_ID/audio"
+cmp -s "$TMPD/probe.wav" "$TMPD/fetched.wav" && { echo "  PASS leased audio is byte-identical to the upload"; PASS=$((PASS + 1)); } || { echo "  FAIL fetched audio differs"; FAIL=$((FAIL + 1)); }
+expect "wrong lease token is refused"             409 LEASE_INVALID -H "Authorization: Bearer $WORKER" -H "X-Lease-Token: $(openssl rand -hex 32)" -H "X-Worker-Id: $WID" -H "X-Correlation-ID: $(uuid)" "$API/internal/v1/processing-jobs/$JOB_ID/audio"
+mkrecord() { python3 - "$1" "$JOB_ID" "$REC3" "$SESS3" "$2" <<'PY'
+import json, sys, secrets
+rec = json.load(open(sys.argv[1]))
+rec.update(record_id="frec_" + secrets.token_hex(16), processing_job_id=sys.argv[2], recording_id=sys.argv[3], session_id=sys.argv[4])
+if sys.argv[5] == "clinical":
+    rec["features"][0]["name"] = "depression_score"
+print(json.dumps(rec))
+PY
+}
+EXAMPLE=../../../contracts/voice-features/examples/valid/complete-pass.json
+expect "clinical feature name is refused"         400 SCHEMA_INVALID "${LH[@]}" "${J[@]}" -d "$(mkrecord $EXAMPLE clinical)" "$API/internal/v1/processing-jobs/$JOB_ID/result"
+expect "valid feature record is accepted"         201 ""            "${LH[@]}" "${J[@]}" -d "$(mkrecord $EXAMPLE valid)" "$API/internal/v1/processing-jobs/$JOB_ID/result"
+DONE=$(curl -s -H "Authorization: Bearer $ASHA" "$API/v1/processing-jobs/$JOB_ID")
+[[ "$DONE" == *'"status":"SUCCEEDED"'* && "$DONE" == *'"feature_record_id":"frec_'* && "$DONE" != *'"features"'* ]] \
+  && { echo "  PASS job SUCCEEDED; status shows no feature values"; PASS=$((PASS + 1)); } || { echo "  FAIL job: ${DONE:0:200}"; FAIL=$((FAIL + 1)); }
+SESSION_DONE=$(curl -s -H "Authorization: Bearer $ASHA" "$API/v1/voice-sessions/$SESS3")
+[[ "$SESSION_DONE" == *'"status":"PROCESSED"'* ]] && { echo "  PASS session is PROCESSED"; PASS=$((PASS + 1)); } || { echo "  FAIL session: ${SESSION_DONE:0:200}"; FAIL=$((FAIL + 1)); }
 
 echo; echo "smoke: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

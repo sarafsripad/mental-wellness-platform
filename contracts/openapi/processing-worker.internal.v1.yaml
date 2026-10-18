@@ -69,6 +69,7 @@ paths:
                 lease: { $ref: '#/components/examples/JobLeaseExample' }
         '204':
           description: No job available. Poll again after a back-off.
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -95,6 +96,7 @@ paths:
               schema: { type: string, contentMediaType: audio/wav }
             audio/flac:
               schema: { type: string, contentMediaType: audio/flac }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/LeaseConflict' }
@@ -179,6 +181,7 @@ paths:
               examples:
                 failed:
                   value: { job_id: job_00000000000000000000000000000002, job_status: FAILED }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/LeaseConflict' }
@@ -230,6 +233,11 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     LeaseConflict:
       description: The lease is expired or invalid, the job is no longer RUNNING, or consent was withdrawn (code CONSENT_WITHDRAWN). The worker must discard the job's audio and any output.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    BadRequest:
+      description: Missing or malformed headers, path IDs or body (code VALIDATION_FAILED).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -321,7 +329,7 @@ components:
         type: { type: string }
         title: { type: string }
         status: { type: integer }
-        code: { type: string, enum: [UNAUTHENTICATED, FORBIDDEN, LEASE_EXPIRED, LEASE_INVALID, JOB_NOT_RUNNING, CONSENT_WITHDRAWN, SCHEMA_INVALID, JOB_MISMATCH, INTERNAL_ERROR] }
+        code: { type: string, enum: [VALIDATION_FAILED, UNAUTHENTICATED, FORBIDDEN, LEASE_EXPIRED, LEASE_INVALID, JOB_NOT_RUNNING, CONSENT_WITHDRAWN, SCHEMA_INVALID, JOB_MISMATCH, INTERNAL_ERROR] }
         detail: { type: string, maxLength: 300 }
         correlation_id: { type: string, format: uuid }
         errors:

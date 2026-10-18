@@ -8,6 +8,9 @@ public interface RecordingAudio {
 	/** The recording, if its audio is currently stored and its session is not cancelled. */
 	Optional<StoredRecording> findStored(String recordingId);
 
+	/** The recording in any state (check {@link StoredRecording#usable()}), or empty if it doesn't exist. */
+	Optional<StoredRecording> find(String recordingId);
+
 	/** The audio bytes of a stored recording, verified against its registered SHA-256. */
 	byte[] read(String recordingId);
 

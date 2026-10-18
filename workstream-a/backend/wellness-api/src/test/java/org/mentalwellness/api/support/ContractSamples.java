@@ -27,18 +27,26 @@ public final class ContractSamples {
 	private ContractSamples() {
 	}
 
-	/** Records the request body (if any) and the response of one call to {@code operationId}. */
+	/** Records one call to {@code operationId} in wellness-api.v1.yaml. */
 	public static void record(String operationId, String requestBody, MvcResult result) {
+		record("wellness-api.v1.yaml", operationId, requestBody, result);
+	}
+
+	/** Records the request body (if any) and the response of one call to {@code operationId} in {@code file}. */
+	public static void record(String file, String operationId, String requestBody, MvcResult result) {
 		try {
 			int status = result.getResponse().getStatus();
 			String responseBody = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
 			Map<String, Object> sample = new LinkedHashMap<>();
-			sample.put("file", "wellness-api.v1.yaml");
+			sample.put("file", file);
 			sample.put("operation_id", operationId);
 			sample.put("status", String.valueOf(status));
 			sample.put("content_type", String.valueOf(result.getResponse().getContentType()));
 			sample.put("request", requestBody == null ? null : JSON.readTree(requestBody));
-			sample.put("response", responseBody.isEmpty() ? null : JSON.readTree(responseBody));
+			String type = String.valueOf(result.getResponse().getContentType());
+			boolean jsonBody = type.contains("json") && !responseBody.isEmpty();
+			sample.put("response", jsonBody ? JSON.readTree(responseBody) : null);
+			sample.put("binary_response", !jsonBody && result.getResponse().getContentAsByteArray().length > 0);
 			Files.createDirectories(DIR);
 			Files.writeString(DIR.resolve("%s-%d-%04d.json".formatted(operationId, status, COUNTER.incrementAndGet())),
 					JSON.writerWithDefaultPrettyPrinter().writeValueAsString(sample));

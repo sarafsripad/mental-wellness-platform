@@ -7,7 +7,7 @@ import org.springframework.http.HttpStatus;
  * details are fixed, non-identifying text: they never include request values. A contract test checks
  * that this enum and the contract agree.
  */
-public enum ProblemCode {
+public enum ProblemCode implements ProblemKind {
 
 	VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Request validation failed", "One or more fields failed validation."),
 	UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Authentication required", "A valid bearer access token is required."),
@@ -41,21 +41,19 @@ public enum ProblemCode {
 		this.detail = detail;
 	}
 
+	@Override
 	public HttpStatus status() {
 		return this.status;
 	}
 
+	@Override
 	public String title() {
 		return this.title;
 	}
 
+	@Override
 	public String detail() {
 		return this.detail;
-	}
-
-	/** Problem type URI, e.g. {@code https://mental-wellness-platform/problems/consent-not-active}. */
-	public String type() {
-		return "https://mental-wellness-platform/problems/" + name().toLowerCase().replace('_', '-');
 	}
 
 }

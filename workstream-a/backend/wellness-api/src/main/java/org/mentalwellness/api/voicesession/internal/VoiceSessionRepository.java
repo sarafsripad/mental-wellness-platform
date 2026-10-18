@@ -21,7 +21,8 @@ class VoiceSessionRepository {
 	}
 
 	record SessionRow(String sessionId, String participantRef, String consentEventId, String languageTag,
-			String dataOrigin, String deviceClass, Instant capturedAt, Instant createdAt, Instant cancelledAt) {
+			String dataOrigin, String deviceClass, Instant capturedAt, Instant createdAt, Instant cancelledAt,
+			String appVersion) {
 	}
 
 	record RecordingRow(String recordingId, String sessionId, String promptId, String format, int samplingRateHz,
@@ -50,12 +51,12 @@ class VoiceSessionRepository {
 	Optional<SessionRow> findSession(String sessionId) {
 		return this.jdbc.sql("""
 				SELECT session_id, participant_ref, consent_event_id, language_tag, data_origin, device_class,
-				  captured_at, created_at, cancelled_at
+				  captured_at, created_at, cancelled_at, app_version
 				FROM voice.session WHERE session_id = ?
 				""")
 			.param(sessionId)
 			.query((rs, n) -> new SessionRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
-					rs.getString(5), rs.getString(6), instant(rs, 7), instant(rs, 8), instant(rs, 9)))
+					rs.getString(5), rs.getString(6), instant(rs, 7), instant(rs, 8), instant(rs, 9), rs.getString(10)))
 			.optional();
 	}
 

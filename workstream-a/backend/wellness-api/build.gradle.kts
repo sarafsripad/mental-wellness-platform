@@ -35,6 +35,8 @@ dependencies {
 	implementation("software.amazon.awssdk:s3") {
 		exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
 	}
+	// Validates worker feature records against the contract's JSON Schema (draft 2020-12).
+	implementation("com.networknt:json-schema-validator:3.0.7")
 	runtimeOnly("org.postgresql:postgresql")
 
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
@@ -55,6 +57,13 @@ dependencyManagement {
 	imports {
 		mavenBom("org.springframework.modulith:spring-modulith-bom:${property("springModulithVersion")}")
 		mavenBom("software.amazon.awssdk:bom:${property("awsSdkVersion")}")
+	}
+}
+
+// The feature-record schema is packaged from contracts/ (single source of truth), not copied by hand.
+tasks.processResources {
+	from(rootProject.projectDir.resolve("../../../contracts/voice-features/feature-record.schema.json")) {
+		into("contracts")
 	}
 }
 

@@ -22,10 +22,12 @@ import org.mentalwellness.api.shared.security.Actor;
 import org.mentalwellness.api.shared.web.CorrelationId;
 import org.mentalwellness.api.shared.web.DomainException;
 import org.mentalwellness.api.shared.web.ProblemCode;
+import org.mentalwellness.api.shared.web.ProblemKind;
 import org.mentalwellness.api.voicesession.RecordingAudio;
 import org.mentalwellness.api.voicesession.SessionStatusContributor;
 import org.mentalwellness.api.voicesession.StoredRecording;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -56,14 +58,15 @@ class VoiceSessionService implements RecordingAudio {
 
 	private final Set<String> allowedOrigins;
 
-	private final List<SessionStatusContributor> statusContributors;
+	/** Looked up lazily: the processing module both contributes statuses and reads recordings from here. */
+	private final ObjectProvider<SessionStatusContributor> statusContributors;
 
 	private final Clock clock;
 
 	VoiceSessionService(VoiceSessionRepository repository, AudioStore store, ConsentGate consent,
 			ParticipantAccess participants, IdempotencyService idempotency, AuditLog audit,
 			@Value("${wellness.data.allowed-origins}") Set<String> allowedOrigins,
-			List<SessionStatusContributor> statusContributors, Clock clock) {
+			ObjectProvider<SessionStatusContributor> statusContributors, Clock clock) {
 		this.repository = repository;
 		this.store = store;
 		this.consent = consent;
@@ -182,13 +185,18 @@ class VoiceSessionService implements RecordingAudio {
 	@Override
 	@Transactional(readOnly = true)
 	public Optional<StoredRecording> findStored(String recordingId) {
+		return find(recordingId).filter(StoredRecording::usable);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Optional<StoredRecording> find(String recordingId) {
 		return this.repository.findRecording(recordingId)
-			.filter(r -> "STORED".equals(r.uploadStatus()))
 			.flatMap(r -> this.repository.findSession(r.sessionId())
-				.filter(s -> s.cancelledAt() == null)
 				.map(s -> new StoredRecording(r.recordingId(), s.sessionId(), s.participantRef(), s.consentEventId(),
-						s.languageTag(), s.dataOrigin(), s.deviceClass(), r.recordedAt(), r.format(), r.samplingRateHz(),
-						r.channels(), r.durationSeconds(), r.sizeBytes(), r.sha256())));
+						s.languageTag(), s.dataOrigin(), s.deviceClass(), s.appVersion(), r.recordedAt(), r.format(),
+						r.samplingRateHz(), r.channels(), r.durationSeconds(), r.sizeBytes(), r.sha256(), r.uploadStatus(),
+						s.cancelledAt() != null)));
 	}
 
 	@Override
@@ -252,7 +260,7 @@ class VoiceSessionService implements RecordingAudio {
 		if (recordings.stream().anyMatch(r -> r.uploadStatus() == VoiceApi.UploadStatus.AWAITING_CONTENT)) {
 			return VoiceApi.SessionStatus.AWAITING_CONTENT;
 		}
-		return this.statusContributors.stream()
+		return this.statusContributors.orderedStream()
 			.map(c -> c.processingStatus(s.sessionId()))
 			.flatMap(Optional::stream)
 			.findFirst()
@@ -285,7 +293,7 @@ class VoiceSessionService implements RecordingAudio {
 		}
 	}
 
-	private DomainException rejected(Actor actor, String action, String type, String id, ProblemCode code) {
+	private DomainException rejected(Actor actor, String action, String type, String id, ProblemKind code) {
 		this.audit.recordIndependently(event(actor, action, AuditOutcome.REJECTED, type, id, null));
 		return new DomainException(code);
 	}

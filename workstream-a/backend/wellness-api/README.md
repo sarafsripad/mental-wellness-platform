@@ -1,6 +1,6 @@
 # wellness-api
 
-The Mental Wellness Platform backend: a Spring Boot modular monolith ([ADR-004](../../../docs/architecture/architecture-decisions.md#adr-004-service-decomposition--modular-monolith-plus-worker)). Slice steps **S3** (skeleton: security, errors, correlation IDs, audit, module boundaries), **S4** (consent) and **S5** (voice sessions and audio upload) are implemented.
+The Mental Wellness Platform backend: a Spring Boot modular monolith ([ADR-004](../../../docs/architecture/architecture-decisions.md#adr-004-service-decomposition--modular-monolith-plus-worker)). Slice steps **S3** (skeleton: security, errors, correlation IDs, audit, module boundaries), **S4** (consent), **S5** (voice sessions and audio upload) and **S6** (processing queue and internal worker API) are implemented. The backend half of the vertical slice is complete; the Python worker (S7) is next.
 
 | | |
 |---|---|
@@ -20,7 +20,7 @@ Each top-level package is a module. Spring Modulith tests enforce that modules h
 | `audit` | ✅ S3 | Append-only audit events (`AuditLog`). The database rejects updates, deletes and truncation. |
 | `consent` | ✅ S4 | Consent events, withdrawals (cascading), status, and the `ConsentGate` other modules call. Approved for synthetic data on 2026-10-18 (privacy/legal review pending). |
 | `voicesession` | ✅ S5 | Sessions, recording metadata, audio upload to encrypted S3-compatible storage; deletes audio when `AUDIO_RECORDING` is withdrawn |
-| `processing` | S6 | Job queue, worker leases, feature-record intake |
+| `processing` | ✅ S6 | PostgreSQL job queue (`SKIP LOCKED`), worker leases, feature-record intake validated against the contract schema; cancels jobs and flags records on withdrawal |
 | `researchexport` | S8 | Consent-filtered, re-keyed exports |
 | `identity` | later | Direct identifiers in `identity_db`. No other module may depend on it (ArchUnit). |
 
@@ -29,7 +29,7 @@ Each top-level package is a module. Spring Modulith tests enforce that modules h
 ```bash
 deploy/local/up.sh                                   # Postgres, storage, Keycloak
 workstream-a/backend/wellness-api/run-local.sh       # API on http://localhost:8080
-workstream-a/backend/wellness-api/smoke-local.sh     # 25 live checks: tokens, consent, upload, storage encryption, deletion
+workstream-a/backend/wellness-api/smoke-local.sh     # 34 live checks: tokens, consent, upload, storage, deletion, worker flow
 ```
 
 `run-local.sh` reads the database password from `deploy/local/.env`. The API never has a default password. On first start, Flyway creates the module schemas and the audit table in `app_db`.
@@ -41,7 +41,7 @@ cd workstream-a/backend/wellness-api
 ./gradlew test        # needs Docker: integration tests start postgres:16.4 via Testcontainers
 ```
 
-The suite has 130 tests (Testcontainers: PostgreSQL 16.4 and SeaweedFS 4.47). Integration tests also record every real request and response to `build/contract-samples/`; run `python3 -m pytest tests/contracts/test_backend_samples.py` from the repo root to validate them against the OpenAPI schemas (CI does this automatically). Integration tests use the full application context and a real PostgreSQL, with no database mocks. They also use the production token validators: only the signing key is swapped, for a test key.
+The suite has 148 tests (Testcontainers: PostgreSQL 16.4 and SeaweedFS 4.47). Integration tests also record every real request and response to `build/contract-samples/`; run `python3 -m pytest tests/contracts/test_backend_samples.py` from the repo root to validate them against the OpenAPI schemas (CI does this automatically). Integration tests use the full application context and a real PostgreSQL, with no database mocks. They also use the production token validators: only the signing key is swapped, for a test key.
 
 | Area | What is checked |
 |---|---|
@@ -76,6 +76,22 @@ Mutation check: removing the audience validator makes exactly the two audience t
 | `PUT .../recordings/{id}/content` | Assigned ASHA worker | `audio/wav` or `audio/flac`, ≤ 25 MB. The server hashes the body itself, checks the file signature, re-checks consent, and stores with SSE-S3 |
 
 Withdrawing `AUDIO_RECORDING` cancels the event's sessions and deletes stored audio after the withdrawal commits (retried every minute until done).
+
+### Processing (S6)
+
+| Operation | Who | Notes |
+|---|---|---|
+| `POST /v1/processing-jobs` | Assigned ASHA worker; ADMIN with reason | Recording must be stored (`RECORDING_NOT_UPLOADED` otherwise). One job per recording and profile, so a repeat returns it (200). |
+| `GET /v1/processing-jobs/{id}` | Assigned ASHA worker; ADMIN with reason | Status and audio-quality outcome only, never feature values; `Retry-After: 5` while queued or running |
+| `POST /internal/v1/processing-jobs/claim` | `processing-worker` service account only | Oldest claimable job, leased for 300 s; jobs whose consent is gone are cancelled and skipped |
+| `GET .../{id}/audio` | Lease holder | Consent re-checked; integrity-verified bytes with `X-Content-SHA256` |
+| `POST .../{id}/result` | Lease holder | Validated against `feature-record.schema.json` (packaged from `contracts/`). Consent, language and provenance are overwritten from server records; IDs and audio properties must match the job. |
+| `POST .../{id}/failure` | Lease holder | Retryable failures are re-queued, up to 3 attempts |
+
+- Lease tokens are random, bound to the worker ID, and stored only as a SHA-256 hash.
+- Expired leases are re-queued, or fail with `TIMEOUT` after the last attempt.
+- Withdrawing `AUDIO_RECORDING` cancels queued and running jobs and flags any derived feature records.
+- In deployed environments `/internal/**` must not be reachable from the public ingress. Locally it is on `localhost:8080`, protected by the worker role and scope.
 
 Clinicians get 404 until clinician assignment exists (case module). Downstream withdrawal actions report `NOT_APPLICABLE` until the modules that hold audio and jobs (S5, S6) register handlers.
 

@@ -18,11 +18,11 @@ public record ApiProblem(String type, String title, int status, String code, Str
 	public record FieldError(String pointer, String rule) {
 	}
 
-	public static ApiProblem of(ProblemCode code, UUID correlationId) {
+	public static ApiProblem of(ProblemKind code, UUID correlationId) {
 		return of(code, correlationId, List.of());
 	}
 
-	public static ApiProblem of(ProblemCode code, UUID correlationId, List<FieldError> errors) {
+	public static ApiProblem of(ProblemKind code, UUID correlationId, List<FieldError> errors) {
 		return new ApiProblem(code.type(), code.title(), code.status().value(), code.name(), code.detail(),
 				correlationId, List.copyOf(errors));
 	}

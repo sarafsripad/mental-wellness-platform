@@ -7,6 +7,7 @@ import java.lang.annotation.Target;
 
 import org.mentalwellness.api.support.TestOnlyController;
 import org.mentalwellness.api.support.TestSecurityConfiguration;
+import org.mentalwellness.api.processing.internal.WorkerTestAccess;
 import org.mentalwellness.api.voicesession.internal.AudioStoreTestAccess;
 
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,6 +26,6 @@ import org.springframework.context.annotation.Import;
 // No request/response dumps on failure: they would print bearer tokens and raw audio into CI logs.
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @Import({ TestcontainersConfiguration.class, TestSecurityConfiguration.class, TestOnlyController.class,
-		AudioStoreTestAccess.class })
+		AudioStoreTestAccess.class, WorkerTestAccess.class })
 public @interface IntegrationTest {
 }
