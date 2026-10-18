@@ -2,7 +2,7 @@
 
 A privacy-first, multilingual platform for community mental wellness. It supports ASHA (Accredited Social Health Activist) workers in the field with voice-based wellness check-ins, and runs a separate research pipeline that studies acoustic voice features as candidate biomarkers.
 
-> **Status:** Early stage. This repository holds the shared contracts, governance documents, architecture decisions and Claude Code development harness. Application and research source code (`workstream-a/`, `workstream-b/`) has not been written yet.
+> **Status:** Early stage. The contracts, governance documents, architecture decisions, local environment and an API skeleton (slice steps S0–S3) exist. No participant-facing feature is implemented yet; the consent model awaits named approval before S4. Research code (`workstream-b/`) has not been written.
 
 > **Clinical safety notice:** Acoustic voice features are biomarker *candidates*, not diagnoses. Any model output is a decision-support indicator that a qualified clinician must interpret. No model may be used clinically without documented validation and named human sign-off (see [docs/research/model-validation-spec.md](docs/research/model-validation-spec.md)).
 
@@ -67,7 +67,7 @@ scripts/                 # Deterministic, non-destructive validation scripts
 requirements-dev.txt     # Pinned tooling for contract validation (not used at runtime)
 deploy/local/            # Docker Compose dev environment (Postgres, storage, Keycloak)
 tests/contracts/         # Contract and hook-script test suite
-workstream-a/            # Application source (planned)
+workstream-a/backend/wellness-api/  # Spring Boot API skeleton (S3)
 workstream-b/            # Research source (planned)
 ```
 
@@ -130,6 +130,15 @@ cd deploy/local && ./init-env.sh && ./up.sh && ./verify.sh
 ```
 
 This starts PostgreSQL, encrypted S3-compatible storage (SeaweedFS) and Keycloak on `127.0.0.1` with generated secrets and synthetic users. See [deploy/local/README.md](deploy/local/README.md).
+
+### Backend
+
+```bash
+cd workstream-a/backend/wellness-api && ./gradlew test      # 69 tests; needs Docker
+./run-local.sh                                              # against deploy/local
+```
+
+See [workstream-a/backend/wellness-api/README.md](workstream-a/backend/wellness-api/README.md).
 
 ### Contract tests
 

@@ -49,3 +49,32 @@ jobs:
 
       - name: Lint (advisory)
         run: bash scripts/lint-check.sh
+
+  backend:
+    name: Backend (wellness-api)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workstream-a/backend/wellness-api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Verify Gradle wrapper checksum is pinned
+        run: grep -q '^distributionSha256Sum=' gradle/wrapper/gradle-wrapper.properties
+
+      # Unit, contract, module-boundary, architecture and Testcontainers integration tests.
+      - name: Test
+        run: ./gradlew --no-daemon test
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wellness-api-test-reports
+          path: workstream-a/backend/wellness-api/build/reports/tests/

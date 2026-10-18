@@ -23,7 +23,9 @@ BASE_ENV = {**os.environ,
 
 
 def _run(cmd, cwd, env=None):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env or BASE_ENV)
+    # stdin=DEVNULL: scripts must never wait for input, whatever the caller's terminal is.
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env or BASE_ENV,
+                          stdin=subprocess.DEVNULL, timeout=120)
 
 
 @pytest.fixture()

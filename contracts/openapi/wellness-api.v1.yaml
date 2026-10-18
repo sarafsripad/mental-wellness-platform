@@ -1026,6 +1026,8 @@ components:
             - UNAUTHENTICATED
             - FORBIDDEN
             - NOT_FOUND
+            - METHOD_NOT_ALLOWED
+            - NOT_ACCEPTABLE
             - IDEMPOTENCY_CONFLICT
             - RESOURCE_CONFLICT
             - CONSENT_NOT_ACTIVE
