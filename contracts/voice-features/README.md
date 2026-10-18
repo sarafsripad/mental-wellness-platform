@@ -4,7 +4,7 @@
 **Version:** 2.0.0, JSON Schema draft 2020-12
 **Producer:** audio-processing worker (application side, Workstream A)
 **Consumers:** wellness API (stores records), research export, Workstream B research pipeline (reads only)
-**Status:** ACTIVE, except the `consentScope` values, which are a DRAFT pending approval of [consent-and-data-lifecycle.md](../../docs/privacy/consent-and-data-lifecycle.md)
+**Status:** ACTIVE. The `consentScope` values were approved for implementation with synthetic data on 2026-10-18; privacy/legal review of [consent-and-data-lifecycle.md](../../docs/privacy/consent-and-data-lifecycle.md) is still pending
 
 ---
 

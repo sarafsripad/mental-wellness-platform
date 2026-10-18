@@ -36,6 +36,11 @@ public class ApiExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
+	@ExceptionHandler(DomainException.class)
+	ResponseEntity<ApiProblem> domain(DomainException ex) {
+		return problem(ex.code(), ex.errors());
+	}
+
 	@ExceptionHandler(BindException.class) // includes MethodArgumentNotValidException
 	ResponseEntity<ApiProblem> invalidBody(BindException ex) {
 		Class<?> target = ex.getTarget() == null ? null : ex.getTarget().getClass();

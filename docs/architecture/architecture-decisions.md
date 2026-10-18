@@ -15,9 +15,9 @@ This log holds ADR-003 to ADR-012. ADR-001 and ADR-002 are separate files, and f
 | [006](#adr-006-feature-extraction-runs-on-the-application-side) | Feature extraction runs on the application side | ACCEPTED (decided by the repository owner on 2026-10-17) |
 | [007](#adr-007-asynchronous-audio-processing-with-a-postgresql-job-queue) | Asynchronous audio processing with a PostgreSQL job queue | PROPOSED |
 | [008](#adr-008-offline-synchronisation-and-conflict-handling) | Offline synchronisation and conflict handling | PROPOSED |
-| [009](#adr-009-versioned-feature-contracts) | Versioned feature contracts | ACCEPTED (v2 supersedes v1, decided on 2026-10-17); consent scope values DRAFT |
+| [009](#adr-009-versioned-feature-contracts) | Versioned feature contracts | ACCEPTED (v2 supersedes v1, decided on 2026-10-17); consent scopes approved 2026-10-18 |
 | [010](#adr-010-separation-of-participant-identity-from-research-data) | Separation of participant identity from research data | PROPOSED |
-| [011](#adr-011-authentication-authorisation-and-consent-enforcement) | Authentication, authorisation and consent enforcement | PROPOSED — **consent model needs named approval (rule 10)** |
+| [011](#adr-011-authentication-authorisation-and-consent-enforcement) | Authentication, authorisation and consent enforcement | ACCEPTED for implementation with synthetic data (responsible engineer, 2026-10-18); privacy/legal review pending |
 | [012](#adr-012-experimental-model-deployment-and-release-approval) | Experimental model deployment and release approval | PROPOSED |
 
 Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means a decision the repository owner explicitly made in this session. No ADR here is approved for clinical use.
@@ -241,7 +241,7 @@ Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means 
 
 ## ADR-011: Authentication, authorisation and consent enforcement
 
-> **Rule 10: this ADR changes the consent model. It needs explicit, named approval before implementation or merge.**
+> **Rule 10:** this ADR changes the consent model. The responsible engineer approved it for implementation and testing with synthetic data on 2026-10-18. Privacy/legal review is still required before any real participant data.
 
 **Context.** There are several user types plus service clients. Consent must be checked by the server for every operation on participant data. The brief asks for separate permissions for screening, audio recording and research reuse, which the old purpose list (`RESEARCH_ONLY`, `CLINICAL_SUPPORT`, `MODEL_TRAINING`, `QUALITY_REVIEW`) didn't provide.
 
@@ -287,8 +287,8 @@ Mapping from the old purposes: `CLINICAL_SUPPORT` → `SCREENING_PARTICIPATION` 
 
 | Role | Name | Decision | Date |
 |---|---|---|---|
-| Responsible engineer | | | |
-| Privacy / legal reviewer | | | |
+| Responsible engineer | Repository owner (GitHub: `sarafsripad`) | Approved for implementation and testing with synthetic data only | 2026-10-18 |
+| Privacy / legal reviewer | | **Pending.** Required before any real participant data (approvals 2–5 in §14 still apply) | |
 
 ---
 

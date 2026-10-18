@@ -29,7 +29,7 @@ echo "=== wellness-api smoke test against $API"
 expect "health is anonymous"                      200 ""                "$API/actuator/health"
 expect "no token is rejected"                     401 UNAUTHENTICATED   "$API/v1/consent-events/ce_00000000000000000000000000000001"
 expect "garbage token is rejected"                401 UNAUTHENTICATED   -H "Authorization: Bearer not.a.jwt" "$API/v1/voice-sessions"
-expect "real ASHA token is accepted (no route yet)" 404 NOT_FOUND       -H "Authorization: Bearer $ASHA" "$API/v1/consent-events/ce_00000000000000000000000000000001"
+expect "real ASHA token accepted; unknown event not found" 404 NOT_FOUND       -H "Authorization: Bearer $ASHA" "$API/v1/consent-events/ce_00000000000000000000000000000001"
 expect "real worker token is accepted (no route yet)" 404 NOT_FOUND     -H "Authorization: Bearer $WORKER" "$API/internal/v1/processing-jobs/claim"
 expect "actuator env is not exposed"              404 NOT_FOUND         -H "Authorization: Bearer $ASHA" "$API/actuator/env"
 # Tampering must change real bytes: the last base64url character of an RS256 signature carries
@@ -47,6 +47,37 @@ PY
 )
 expect "tampered signature is rejected"           401 UNAUTHENTICATED   -H "Authorization: Bearer $TAMPERED" "$API/v1/voice-sessions"
 expect "payload forged to ADMIN is rejected"      401 UNAUTHENTICATED   -H "Authorization: Bearer $FORGED" "$API/v1/voice-sessions"
+
+# --- consent flow (S4) with synthetic IDs ------------------------------------------
+hex() { openssl rand -hex 16; }
+CE="ce_$(hex)"; PPT="ppt_$(hex)"; KEY="$(python3 -c 'import uuid;print(uuid.uuid4())')"
+NOW="$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)"
+CONSENT=$(cat <<JSON
+{"consent_event_id":"$CE","participant_ref":"$PPT",
+ "consent_form":{"form_id":"screening-consent","form_version":"0.1.0","language_tag":"kn-IN"},
+ "scope_decisions":[{"scope":"SCREENING_PARTICIPATION","granted":true},{"scope":"AUDIO_RECORDING","granted":true},
+  {"scope":"AUDIO_RETENTION","granted":false},{"scope":"RESEARCH_FEATURE_REUSE","granted":true},
+  {"scope":"MODEL_TRAINING","granted":true},{"scope":"QUALITY_REVIEW","granted":false}],
+ "capture":{"captured_at_utc":"$NOW","method":"SIGNED_ON_DEVICE","read_aloud":true,"comprehension_confirmed":true},
+ "safeguards":{"adult_confirmed":true}}
+JSON
+)
+ASHA2=$(token -d grant_type=password -d client_id=wellness-e2e -d client_secret="$E2E_CLIENT_SECRET" \
+  -d username=asha.test2 -d password="$KEYCLOAK_TEST_USER_PASSWORD")
+J=(-H "Content-Type: application/json")
+expect "record consent"                           201 ""                -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $KEY" "${J[@]}" -d "$CONSENT" "$API/v1/consent-events"
+expect "retry with same key replays"              200 ""                -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $KEY" "${J[@]}" -d "$CONSENT" "$API/v1/consent-events"
+expect "assigned worker reads the event"          200 ""                -H "Authorization: Bearer $ASHA" "$API/v1/consent-events/$CE"
+expect "another worker sees not found"            404 NOT_FOUND         -H "Authorization: Bearer $ASHA2" "$API/v1/consent-events/$CE"
+expect "worker token cannot read consent"         403 FORBIDDEN         -H "Authorization: Bearer $WORKER" "$API/v1/consent-events/$CE"
+WD="{\"withdrawal_id\":\"cw_$(hex)\",\"scopes\":[\"RESEARCH_FEATURE_REUSE\"],\"withdrawn_at_utc\":\"$NOW\",\"channel\":\"IN_PERSON_ASHA\"}"
+expect "withdraw research reuse"                  202 ""                -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(python3 -c 'import uuid;print(uuid.uuid4())')" "${J[@]}" -d "$WD" "$API/v1/consent-events/$CE/withdrawals"
+STATUS=$(curl -s -H "Authorization: Bearer $ASHA" "$API/v1/participants/$PPT/consent-status")
+if [[ "$STATUS" == *'"status":"PARTIALLY_WITHDRAWN"'* && "$STATUS" != *RESEARCH_FEATURE_REUSE* && "$STATUS" != *MODEL_TRAINING* ]]; then
+  echo "  PASS status is PARTIALLY_WITHDRAWN without research or training scopes"; PASS=$((PASS + 1))
+else
+  echo "  FAIL consent status: ${STATUS:0:200}"; FAIL=$((FAIL + 1))
+fi
 
 echo; echo "smoke: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

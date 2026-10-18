@@ -9,7 +9,17 @@ ENV_FILE=../../../deploy/local/.env
 APP_DB_PASSWORD="$(grep -E '^APP_DB_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
 [[ -n "$APP_DB_PASSWORD" ]] || { echo "run-local: APP_DB_PASSWORD missing in $ENV_FILE" >&2; exit 1; }
 
+# Pseudonym key for wkr_ references: generated once into .env if an older .env lacks it.
+if ! grep -qE '^WELLNESS_PSEUDONYM_KEY=.{32,}' "$ENV_FILE"; then
+  echo "WELLNESS_PSEUDONYM_KEY=$(openssl rand -hex 32)" >> "$ENV_FILE"
+  echo "run-local: added WELLNESS_PSEUDONYM_KEY to $ENV_FILE"
+fi
+WELLNESS_PSEUDONYM_KEY="$(grep -E '^WELLNESS_PSEUDONYM_KEY=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
+
 export WELLNESS_DB_URL="jdbc:postgresql://localhost:5433/app_db"
 export WELLNESS_DB_USER="app_user"
 export WELLNESS_DB_PASSWORD="$APP_DB_PASSWORD"
+export WELLNESS_PSEUDONYM_KEY
+# Local only: also load the synthetic consent form IDs.
+export SPRING_FLYWAY_LOCATIONS="classpath:db/migration,classpath:db/local-seed"
 exec ./gradlew bootRun "$@"

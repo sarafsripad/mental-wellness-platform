@@ -435,7 +435,7 @@
         "MODEL_TRAINING",
         "QUALITY_REVIEW"
       ],
-      "description": "DRAFT — pending named approval of docs/privacy/consent-and-data-lifecycle.md. See that document for definitions."
+      "description": "Consent scopes approved for implementation with synthetic data on 2026-10-18 (privacy/legal review pending). Definitions: docs/privacy/consent-and-data-lifecycle.md."
     },
     "feature": {
       "type": "object",

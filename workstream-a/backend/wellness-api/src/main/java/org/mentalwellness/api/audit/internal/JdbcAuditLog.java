@@ -7,6 +7,8 @@ import org.mentalwellness.api.audit.AuditLog;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 class JdbcAuditLog implements AuditLog {
@@ -18,6 +20,13 @@ class JdbcAuditLog implements AuditLog {
 	}
 
 	@Override
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void recordIndependently(AuditEvent event) {
+		record(event);
+	}
+
+	@Override
+	@Transactional
 	public void record(AuditEvent event) {
 		this.jdbc.sql("""
 				INSERT INTO audit.audit_event

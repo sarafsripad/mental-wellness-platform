@@ -2,7 +2,7 @@
 
 **Version:** 0.1.0
 **Date:** 2026-10-17
-**Status:** DRAFT. It changes the consent model, so it needs **named approval** (CLAUDE.md rule 10) and legal, ethics and clinical review before any real participant data is collected
+**Status:** APPROVED FOR IMPLEMENTATION WITH SYNTHETIC DATA (responsible engineer, 2026-10-18). Privacy/legal, ethics and clinical review are still required before any real participant data is collected (§14)
 **Extends:** [data-governance.md](data-governance.md), which still defines the data categories, access table and audit rules. Where the two differ, this document is the proposed replacement and data-governance.md will be updated once this is approved.
 **Related:** [ADR-011](../architecture/architecture-decisions.md#adr-011-authentication-authorisation-and-consent-enforcement), [wellness-api.v1.yaml](../../contracts/openapi/wellness-api.v1.yaml)
 
@@ -210,7 +210,7 @@ Identity lookups (seeing a participant's name or phone) are a separate, audited 
 
 | # | Approval | From | Blocks |
 |---|---|---|---|
-| 1 | This consent model and scopes | Named responsible engineer + privacy/legal reviewer | Implementing consent in v1 |
+| 1 | This consent model and scopes | Named responsible engineer (**given 2026-10-18**) + privacy/legal reviewer (pending) | Engineer approval: implementing consent in v1 against synthetic data. Privacy/legal approval: any real participant data |
 | 2 | Consent form wording, Kannada translation with back-translation, comprehension testing | Ethics committee / programme | Any real consent capture |
 | 3 | Institutional ethics committee approval of the screening study protocol | Ethics committee | Any real participant data |
 | 4 | Legal review of data protection obligations, data residency, retention periods | Legal counsel | Production launch |
@@ -235,5 +235,5 @@ Until approvals 2–5 exist, every environment accepts only `SYNTHETIC` or `AUTH
 
 | Role | Name | Decision | Date |
 |---|---|---|---|
-| Responsible engineer | | | |
-| Privacy / legal reviewer | | | |
+| Responsible engineer | Repository owner (GitHub: `sarafsripad`) | Approved for implementation and testing with synthetic data only | 2026-10-18 |
+| Privacy / legal reviewer | | **Pending.** Required before any real participant data (approvals 2–5 in §14 still apply) | |

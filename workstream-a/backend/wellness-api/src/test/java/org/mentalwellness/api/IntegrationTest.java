@@ -18,7 +18,8 @@ import org.springframework.context.annotation.Import;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest
+@SpringBootTest(properties = { "spring.flyway.locations=classpath:db/migration,classpath:db/local-seed",
+		"wellness.pseudonyms.key=test-only-pseudonym-key-0123456789abcdef" })
 @AutoConfigureMockMvc
 @Import({ TestcontainersConfiguration.class, TestSecurityConfiguration.class, TestOnlyController.class })
 public @interface IntegrationTest {

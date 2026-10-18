@@ -72,6 +72,18 @@ jobs:
       - name: Test
         run: ./gradlew --no-daemon test
 
+      # Real requests and responses recorded by the integration tests, checked against the
+      # OpenAPI schemas with the same validator as the contract examples.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate recorded API traffic against the contract
+        working-directory: .
+        run: |
+          python -m pip install -r requirements-dev.txt
+          test -n "$(ls workstream-a/backend/wellness-api/build/contract-samples/*.json 2>/dev/null)"
+          python -m pytest tests/contracts/test_backend_samples.py -q
+
       - name: Upload test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4

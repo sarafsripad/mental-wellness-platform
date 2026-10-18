@@ -1,6 +1,6 @@
 # wellness-api
 
-The Mental Wellness Platform backend: a Spring Boot modular monolith ([ADR-004](../../../docs/architecture/architecture-decisions.md#adr-004-service-decomposition--modular-monolith-plus-worker)). This is slice step **S3**, the skeleton. It handles security, errors, correlation IDs, audit and module boundaries, and has **no business endpoints yet**.
+The Mental Wellness Platform backend: a Spring Boot modular monolith ([ADR-004](../../../docs/architecture/architecture-decisions.md#adr-004-service-decomposition--modular-monolith-plus-worker)). Slice steps **S3** (skeleton: security, errors, correlation IDs, audit, module boundaries) and **S4** (consent) are implemented.
 
 | | |
 |---|---|
@@ -18,7 +18,7 @@ Each top-level package is a module. Spring Modulith tests enforce that modules h
 |---|---|---|
 | `shared` | ✅ S3 | Correlation IDs, RFC 9457 problem responses, OIDC security. No domain logic. |
 | `audit` | ✅ S3 | Append-only audit events (`AuditLog`). The database rejects updates, deletes and truncation. |
-| `consent` | S4 🔒 | Consent events and scopes. Needs named approval of the consent model (rule 10). |
+| `consent` | ✅ S4 | Consent events, withdrawals (cascading), status, and the `ConsentGate` other modules call. Approved for synthetic data on 2026-10-18 (privacy/legal review pending). |
 | `voicesession` | S5 🔒 | Sessions, recordings, audio upload |
 | `processing` | S6 | Job queue, worker leases, feature-record intake |
 | `researchexport` | S8 | Consent-filtered, re-keyed exports |
@@ -41,7 +41,7 @@ cd workstream-a/backend/wellness-api
 ./gradlew test        # needs Docker: integration tests start postgres:16.4 via Testcontainers
 ```
 
-The suite has 69 tests. Integration tests use the full application context and a real PostgreSQL, with no database mocks. They also use the production token validators: only the signing key is swapped, for a test key.
+The suite has 112 tests. Integration tests also record every real request and response to `build/contract-samples/`; run `python3 -m pytest tests/contracts/test_backend_samples.py` from the repo root to validate them against the OpenAPI schemas (CI does this automatically). Integration tests use the full application context and a real PostgreSQL, with no database mocks. They also use the production token validators: only the signing key is swapped, for a test key.
 
 | Area | What is checked |
 |---|---|
@@ -53,8 +53,20 @@ The suite has 69 tests. Integration tests use the full application context and a
 | Audit | Append-only (UPDATE, DELETE and TRUNCATE rejected by trigger); check constraints refuse free text such as names |
 | Boundaries | Modulith verification; ArchUnit rules (no `System.out`, no `java.util.logging`, no field injection, identity isolation) |
 | Contract | `ProblemCode` matches the contract's `Problem.code` list exactly |
+| Consent (S4) | Create, replay, conflicts, concurrent duplicates (one event), incomplete or inconsistent decisions, minors, unknown forms, future times, unknown fields; assignment isolation; ADMIN reason codes; cascading withdrawal; no-op withdrawal; the gate refuses another participant's event, missing scopes, data captured before consent, and a withdrawn event revived by a newer one; append-only history |
 
 Mutation check: removing the audience validator makes exactly the two audience tests fail.
+
+## Consent endpoints (S4)
+
+| Operation | Who | Notes |
+|---|---|---|
+| `POST /v1/consent-events` | ASHA worker (`consent:write`) | Idempotent. The first consent event assigns the participant to the worker. |
+| `GET /v1/consent-events/{id}` | Assigned ASHA worker; ADMIN with `X-Access-Reason` | Others get 404. Every read is audited. |
+| `POST /v1/consent-events/{id}/withdrawals` | Assigned ASHA worker; ADMIN with reason | Cascades to dependent scopes; 202, or 200 for a no-op or replay |
+| `GET /v1/participants/{ref}/consent-status` | As for reads | Latest event's status and effective scopes |
+
+Clinicians get 404 until clinician assignment exists (case module). Downstream withdrawal actions report `NOT_APPLICABLE` until the modules that hold audio and jobs (S5, S6) register handlers.
 
 ## Security behaviour
 
@@ -71,5 +83,6 @@ Mutation check: removing the audience validator makes exactly the two audience t
 | `WELLNESS_DB_URL` | `jdbc:postgresql://localhost:5433/app_db` | |
 | `WELLNESS_DB_USER` | `app_user` | |
 | `WELLNESS_DB_PASSWORD` | **none (required)** | |
+| `WELLNESS_PSEUDONYM_KEY` | **none (required)** | HMAC key for `wkr_` worker references (≥ 32 chars). `run-local.sh` adds one to `deploy/local/.env` if missing. |
 | `WELLNESS_JWT_ISSUER` | `http://localhost:8081/realms/wellness-local` | Must match the token's `iss` |
 | `WELLNESS_JWT_JWK_SET_URI` | local Keycloak certs URL | Can point at an internal hostname inside Docker |
