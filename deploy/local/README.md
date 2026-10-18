@@ -61,6 +61,7 @@ Example connection: `PGPASSWORD=<APP_DB_PASSWORD> psql -h 127.0.0.1 -p 5433 -U a
 | `wellness-mobile` | Authorization code + PKCE (S256). Password grant disabled. | `consent:*`, `voice:*`, `processing:read/write` |
 | `processing-worker` | Client credentials only | `processing:worker` |
 | `wellness-e2e` | Password grant. **Exists only here**, for automated tests; never create it elsewhere. | Same as mobile |
+| `wellness-dev-console` | Authorization code + PKCE for the browser test console at `http://localhost:8080/dev-console/`. **Exists only here.** | Same as mobile |
 
 **Tokens:**
 - Issuer: `http://localhost:8081/realms/wellness-local`, including when Keycloak is reached from containers.
@@ -89,6 +90,14 @@ Realm roles are `ASHA_WORKER`, `CLINICIAN`, `ADMIN` and `PROCESSING_WORKER`. The
   - a synthetic ASHA user gets `ASHA_WORKER`, has no worker scope, and the token has no personal data
   - the mobile client refuses the password grant
 - **Exposure:** ports bind to `127.0.0.1` only.
+
+## When the realm file changes
+
+Keycloak imports `keycloak/wellness-local-realm.json` only when the realm is first created. After pulling a change to it (for example the `wellness-dev-console` client), recreate Keycloak. It keeps nothing except the imported realm, and the synthetic users and secrets come back from `.env`:
+
+```bash
+docker compose up -d --force-recreate keycloak
+```
 
 ## Notes and known limitations
 

@@ -104,6 +104,15 @@ Run `run-export.sh`. It builds one export and exits, with no web server, endpoin
 
 Clinicians get 404 until clinician assignment exists (case module). Downstream withdrawal actions report `NOT_APPLICABLE` until the modules that hold audio and jobs (S5, S6) register handlers.
 
+## Local test console
+
+`run-local.sh` sets `WELLNESS_DEV_CONSOLE_ENABLED=true`, which serves a static page at `http://localhost:8080/dev-console/`. It's off everywhere else: the path then returns 401 like any other.
+
+- **Login:** authorization code + PKCE through Keycloak, using the local-only client `wellness-dev-console`. The token is kept in page memory only.
+- **API access:** the page calls the normal API with the user's token. It gets no extra access.
+- **Hardening:** strict CSP (`script-src 'self'`, no inline script, `frame-ancestors 'none'`), `no-store` and `no-referrer`. All output is written as text, never HTML.
+- **Synthetic only:** audio is generated in the browser; there's no microphone or file upload. The console refuses to start if `wellness.data.allowed-origins` includes `PARTICIPANT`.
+
 ## Security behaviour
 
 - **Every request needs a valid bearer token**, except `/actuator/health` (and its probes) and `/.well-known/oauth-protected-resource`.

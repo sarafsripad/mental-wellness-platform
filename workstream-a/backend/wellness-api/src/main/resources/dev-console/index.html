@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wellness Test Console</title>
+  <link rel="stylesheet" href="console.css">
+  <script src="console.js" defer></script>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Wellness Test Console</h1>
+    <p class="sub">Local development only · synthetic data only · not a clinical tool</p>
+  </div>
+  <div id="auth">
+    <span id="who">Not logged in</span>
+    <button id="login" type="button">Log in</button>
+    <button id="logout" type="button" hidden>Log out</button>
+  </div>
+</header>
+
+<p class="banner">
+  This page drives the real API with your Keycloak login. It can only send <strong>generated</strong> test audio:
+  there is no microphone and no file upload, so no real voice can be labelled as synthetic.
+  Log in as <code>asha.test1</code> or <code>asha.test2</code> (password: <code>KEYCLOAK_TEST_USER_PASSWORD</code> in
+  <code>deploy/local/.env</code>). Try <code>clinician.test1</code> or <code>admin.test1</code> to see access rules refuse you.
+</p>
+
+<main>
+  <section id="consent-panel">
+    <h2>1 · Consent</h2>
+    <p class="hint">Records a consent event for a new synthetic participant. Each scope is an explicit choice; the API
+      rejects missing or inconsistent choices (for example model training without research reuse).</p>
+    <label>Language
+      <select id="language"><option value="kn-IN">Kannada (kn-IN)</option><option value="en-IN">English (en-IN)</option></select>
+    </label>
+    <fieldset id="scopes"><legend>Scopes granted</legend></fieldset>
+    <label class="inline"><input type="checkbox" id="adult" checked> Adult confirmed (v1 accepts adults only)</label>
+    <div class="actions">
+      <button id="record-consent" type="button" disabled>Record consent</button>
+      <button id="consent-status" type="button" disabled>Check status</button>
+    </div>
+    <dl id="participant" class="facts"></dl>
+
+    <h3>Withdraw</h3>
+    <fieldset id="withdraw-scopes"><legend>Scopes to withdraw (dependents cascade)</legend></fieldset>
+    <div class="actions"><button id="withdraw" type="button" disabled>Withdraw selected</button></div>
+  </section>
+
+  <section id="voice-panel">
+    <h2>2 · Recording and processing</h2>
+    <p class="hint">Generates signal-made, voice-like test audio in the browser, then creates a session, registers and
+      uploads the recording, and submits a processing job. The worker must be running
+      (<code>workstream-a/processing-worker/run-local.sh</code>).</p>
+    <label>Test audio
+      <select id="variant"></select>
+    </label>
+    <p id="variant-note" class="hint"></p>
+    <audio id="preview" controls></audio>
+    <div class="actions">
+      <button id="generate" type="button">Generate and preview</button>
+      <button id="process" type="button" disabled>Upload and process</button>
+    </div>
+    <ol id="steps" class="steps"></ol>
+    <dl id="job" class="facts"></dl>
+  </section>
+
+  <section id="log-panel">
+    <h2>API calls</h2>
+    <p class="hint">Every request this page makes, newest first. Tokens are never shown.</p>
+    <ol id="log" class="log"></ol>
+  </section>
+</main>
+</body>
+</html>

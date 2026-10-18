@@ -256,6 +256,41 @@
         "processing:write"
       ],
       "optionalClientScopes": []
+    },
+    {
+      "clientId": "wellness-dev-console",
+      "name": "LOCAL ONLY: browser test console (authorization code + PKCE)",
+      "description": "Served by the API at http://localhost:8080/dev-console/ when run by run-local.sh. Never create this client in any other environment.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/dev-console/"
+      ],
+      "webOrigins": [
+        "http://localhost:8080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8080/dev-console/"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "wellness-api-audience",
+        "consent:read",
+        "consent:write",
+        "voice:read",
+        "voice:write",
+        "processing:read",
+        "processing:write"
+      ],
+      "optionalClientScopes": []
     }
   ],
   "users": [

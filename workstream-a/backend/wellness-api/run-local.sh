@@ -24,4 +24,7 @@ export WELLNESS_STORAGE_ACCESS_KEY="$(grep -E '^STORAGE_APP_ACCESS_KEY=' "$ENV_F
 export WELLNESS_STORAGE_SECRET_KEY="$(grep -E '^STORAGE_APP_SECRET_KEY=' "$ENV_FILE" | cut -d= -f2-)"
 # Local only: also load the synthetic consent form IDs.
 export SPRING_FLYWAY_LOCATIONS="classpath:db/migration,classpath:db/local-seed"
+# Local only: serve the browser test console at http://localhost:8080/dev-console/
+export WELLNESS_DEV_CONSOLE_ENABLED=true
+echo "run-local: test console at http://localhost:8080/dev-console/ (once started)"
 exec ./gradlew bootRun "$@"

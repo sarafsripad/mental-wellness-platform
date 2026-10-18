@@ -142,6 +142,15 @@ cd workstream-a/backend/wellness-api && ./gradlew test      # 69 tests; needs Do
 
 See [workstream-a/backend/wellness-api/README.md](workstream-a/backend/wellness-api/README.md).
 
+### Test console in the browser (local only)
+
+With the stack, API and worker running, open **http://localhost:8080/dev-console/**. Log in as `asha.test1` (the password is `KEYCLOAK_TEST_USER_PASSWORD` in `deploy/local/.env`), then:
+- record consent with the scopes you choose, check consent status, and withdraw scopes
+- send generated test audio (`voice`, `noisy`, `drowned`, `clipped`, `silent`, `short`) through upload and processing, and watch the job finish
+- see every API call and response, errors included
+
+There's no microphone and no file upload, so only synthetic audio can be sent. The console exists only when `run-local.sh` enables it, and it refuses to run anywhere that accepts participant data.
+
 ### End-to-end (vertical slice)
 
 With the local stack, the API and the worker running:
