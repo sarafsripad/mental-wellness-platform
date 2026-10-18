@@ -90,3 +90,14 @@ jobs:
         with:
           name: wellness-api-test-reports
           path: workstream-a/backend/wellness-api/build/reports/tests/
+
+  worker:
+    name: Processing worker (Python + openSMILE)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Tests run inside the same pinned image the worker is deployed in.
+      - name: Build test image
+        run: docker build --target test -f workstream-a/processing-worker/Dockerfile -t wellness-worker-test .
+      - name: Test
+        run: docker run --rm wellness-worker-test

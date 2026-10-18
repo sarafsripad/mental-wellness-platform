@@ -1,0 +1,8 @@
+# Direct dependencies of the audio-processing worker. Pinned; transitive pins in requirements.lock.
+# opensmile is used under the audEERING Research License for development and evaluation with
+# synthetic or authorised test audio only. See contracts/licences/opensmile.md.
+opensmile==2.6.0
+soundfile==0.14.0
+numpy==2.5.3
+httpx==0.28.1
+jsonschema==4.26.0

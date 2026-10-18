@@ -1,0 +1,3 @@
+.build.log
+.worker.log
+__pycache__/
