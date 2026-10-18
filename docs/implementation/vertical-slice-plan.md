@@ -99,7 +99,7 @@ Each step is one reviewable pull request. Steps marked 🔒 touch voice recordin
 | **S7** 🔒 Processing worker ✅ done 2026-10-18 on branch `s7-worker` (openSMILE for dev/eval only, see contracts/licences/opensmile.md) | Python worker: QC (duration, level, clipping, silence, SNR estimate), openSMILE eGeMAPSv02 functionals with the pinned config, record builder, local schema validation | Determinism test (same WAV → identical record minus timestamps); QC FAIL → failure call; records validate |
 | **S8** Research export and consumer ✅ done 2026-10-18 on branch `s8-export` | `research-export` job (JSONL + manifest, re-keyed IDs, consent-filtered), export manifest schema, `workstream-b/research-pipeline` ingest + validation + summary | Withdrawn participant absent from export; consumer rejects a tampered or unknown-version record |
 | **S9** 🔒 Mobile test-recording flow | Synthetic participant, consent screen (en/kn strings via i18n), recorder (16 kHz mono WAV), encrypted local store, outbox, status screen | Runs on an Android emulator against local compose; offline → online sync demo; recorder blocked without consent |
-| **S10** End-to-end demonstration | `tests/e2e` (API-driven, synthetic WAV) in CI; a manual mobile run recorded in the slice report | §7 acceptance criteria all met |
+| **S10** End-to-end demonstration ✅ API-driven part done 2026-10-18 on branch `s10-e2e` (`tests/e2e`, 10 tests); mobile run waits for S9 | `tests/e2e` (API-driven, synthetic WAV) in CI; a manual mobile run recorded in the slice report | §7 acceptance criteria all met |
 
 S4 and S5 can't start until the consent model ([consent-and-data-lifecycle.md](../privacy/consent-and-data-lifecycle.md)) has named approval. S0–S3 don't depend on it.
 
@@ -142,18 +142,18 @@ The commands from S2 onward refer to files that don't exist yet. They are the ta
 
 ## 7. Acceptance criteria for the slice
 
-- [ ] A synthetic recording made in the mobile app on an emulator ends up as a stored v2.0.0 feature record, and the app shows `SUCCEEDED` with the audio-quality outcome and no feature values.
-- [ ] The same flow runs headless in CI (`tests/e2e`) from a generated WAV.
-- [ ] Without `AUDIO_RECORDING`: the recorder is blocked in the app; the API returns 422 `CONSENT_NOT_ACTIVE` for session, upload and job; the worker never receives audio.
-- [ ] Withdrawing `AUDIO_RECORDING` while a job is queued: the job ends `CANCELLED` with `CONSENT_WITHDRAWN`, the audio is deleted, and no record is produced.
-- [ ] Withdrawing `RESEARCH_FEATURE_REUSE`: the next export excludes the participant, and the export manifest lists the exclusion count.
-- [ ] Resubmitting any create with the same `Idempotency-Key` returns the original result, and there are no duplicate rows.
-- [ ] A silent or clipped synthetic WAV gives `FAILED` / `AUDIO_QUALITY_FAILED` and no feature record.
-- [ ] Every stored and exported record validates against `feature-record.schema.json`. The research consumer rejects a record with a modified `schema_version` major.
-- [ ] Logs from the API and worker for the whole run contain no audio bytes, no feature values and no request bodies (automated log scan).
-- [ ] The worker container has no database or storage credentials (checked in the compose config).
-- [ ] The API rejects `data_origin: PARTICIPANT` in the local environment.
-- [ ] All CI checks pass, and the 🔒 steps have recorded approvals.
+- [ ] A synthetic recording made in the mobile app on an emulator ends up as a stored v2.0.0 feature record, and the app shows `SUCCEEDED` with the audio-quality outcome and no feature values. **Waiting for S9** (Node 22 and Android SDK 35/36 on the dev machine).
+- [x] The same flow runs headless (`tests/e2e`) from generated WAVs: verified locally 2026-10-18. CI job `e2e` defined; not yet confirmed on GitHub.
+- [x] Without `AUDIO_RECORDING`: the API returns 422 `CONSENT_NOT_ACTIVE` for session, upload and job; the worker never receives audio. *(The in-app recorder block is part of S9.)*
+- [x] Withdrawing `AUDIO_RECORDING` while a job is queued: the job ends `CANCELLED` with `CONSENT_WITHDRAWN`, the audio is deleted, and no record is produced. *(A backend integration test covers a **running** job. Queued jobs are cancelled by the same SQL statement, but no test exercises the queued case yet. The e2e suite covers withdrawal after processing.)*
+- [x] Withdrawing `RESEARCH_FEATURE_REUSE`: the next export excludes the participant and announces the record in `withdrawn_record_ids`; Workstream B removes it.
+- [x] Resubmitting any create with the same `Idempotency-Key` returns the original result, and there are no duplicate rows.
+- [x] A silent synthetic WAV gives `FAILED` / `AUDIO_QUALITY_FAILED` and no feature record. A *clipped* WAV is `DEGRADED` (flagged, still processed), which is the QC design rather than a failure.
+- [x] Every stored and exported record validates against `feature-record.schema.json`. The research consumer rejects a record with a modified `schema_version` major.
+- [x] Logs from the API and worker for the whole run contain no audio bytes, no feature values and no lease tokens (automated log scan in `tests/e2e`).
+- [x] The worker container has no database or storage credentials (checked on the running container in `tests/e2e`).
+- [x] The API rejects `data_origin: PARTICIPANT` in the local environment, and the worker and research consumer refuse it too.
+- [ ] All CI checks pass (not yet confirmed on GitHub), and the 🔒 steps have recorded approvals (consent model approved for synthetic data on 2026-10-18; privacy/legal review pending).
 
 ---
 

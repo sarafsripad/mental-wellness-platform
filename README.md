@@ -2,7 +2,7 @@
 
 A privacy-first, multilingual platform for community mental wellness. It supports ASHA (Accredited Social Health Activist) workers in the field with voice-based wellness check-ins, and runs a separate research pipeline that studies acoustic voice features as candidate biomarkers.
 
-> **Status:** Early stage. The contracts, governance documents, architecture decisions, local environment and an API skeleton (slice steps S0–S3) exist. No participant-facing feature is implemented yet; the consent model awaits named approval before S4. Research code (`workstream-b/`) has not been written.
+> **Status:** Early stage, synthetic data only. The backend vertical slice (S0–S8, S10) works end to end: consent, voice upload, openSMILE processing, research export and the Workstream B consumer. The mobile app (S9) is next. Not approved for real participant data: privacy/legal review and the other approvals in [consent-and-data-lifecycle.md](docs/privacy/consent-and-data-lifecycle.md) §14 are pending, and openSMILE is licensed for evaluation only.
 
 > **Clinical safety notice:** Acoustic voice features are biomarker *candidates*, not diagnoses. Any model output is a decision-support indicator that a qualified clinician must interpret. No model may be used clinically without documented validation and named human sign-off (see [docs/research/model-validation-spec.md](docs/research/model-validation-spec.md)).
 
@@ -68,7 +68,9 @@ requirements-dev.txt     # Pinned tooling for contract validation (not used at r
 deploy/local/            # Docker Compose dev environment (Postgres, storage, Keycloak)
 tests/contracts/         # Contract and hook-script test suite
 workstream-a/backend/wellness-api/  # Spring Boot API skeleton (S3)
-workstream-b/            # Research source (planned)
+workstream-a/processing-worker/      # Python + openSMILE worker (S7)
+workstream-b/research-pipeline/     # Research export consumer (S8)
+tests/e2e/                          # End-to-end tests of the slice (S10)
 ```
 
 ---
@@ -139,6 +141,19 @@ cd workstream-a/backend/wellness-api && ./gradlew test      # 69 tests; needs Do
 ```
 
 See [workstream-a/backend/wellness-api/README.md](workstream-a/backend/wellness-api/README.md).
+
+### End-to-end (vertical slice)
+
+With the local stack, the API and the worker running:
+
+```bash
+cd deploy/local && ./up.sh                                      # 1. infrastructure
+workstream-a/backend/wellness-api/run-local.sh                  # 2. API (own terminal)
+workstream-a/processing-worker/run-local.sh                     # 3. worker (own terminal)
+python3 -m pytest tests/e2e -q                                  # 4. 10 end-to-end tests
+```
+
+These tests drive synthetic participants through consent, upload, openSMILE processing, export and Workstream B ingest, then check the results in the database, storage and logs. Research exports are made with `workstream-a/backend/wellness-api/run-export.sh`; see [workstream-b/research-pipeline](workstream-b/research-pipeline/README.md).
 
 ### Contract tests
 
