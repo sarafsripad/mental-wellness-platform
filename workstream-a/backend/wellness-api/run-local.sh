@@ -20,6 +20,8 @@ export WELLNESS_DB_URL="jdbc:postgresql://localhost:5433/app_db"
 export WELLNESS_DB_USER="app_user"
 export WELLNESS_DB_PASSWORD="$APP_DB_PASSWORD"
 export WELLNESS_PSEUDONYM_KEY
+export WELLNESS_STORAGE_ACCESS_KEY="$(grep -E '^STORAGE_APP_ACCESS_KEY=' "$ENV_FILE" | cut -d= -f2-)"
+export WELLNESS_STORAGE_SECRET_KEY="$(grep -E '^STORAGE_APP_SECRET_KEY=' "$ENV_FILE" | cut -d= -f2-)"
 # Local only: also load the synthetic consent form IDs.
 export SPRING_FLYWAY_LOCATIONS="classpath:db/migration,classpath:db/local-seed"
 exec ./gradlew bootRun "$@"

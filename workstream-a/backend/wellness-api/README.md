@@ -1,6 +1,6 @@
 # wellness-api
 
-The Mental Wellness Platform backend: a Spring Boot modular monolith ([ADR-004](../../../docs/architecture/architecture-decisions.md#adr-004-service-decomposition--modular-monolith-plus-worker)). Slice steps **S3** (skeleton: security, errors, correlation IDs, audit, module boundaries) and **S4** (consent) are implemented.
+The Mental Wellness Platform backend: a Spring Boot modular monolith ([ADR-004](../../../docs/architecture/architecture-decisions.md#adr-004-service-decomposition--modular-monolith-plus-worker)). Slice steps **S3** (skeleton: security, errors, correlation IDs, audit, module boundaries), **S4** (consent) and **S5** (voice sessions and audio upload) are implemented.
 
 | | |
 |---|---|
@@ -19,7 +19,7 @@ Each top-level package is a module. Spring Modulith tests enforce that modules h
 | `shared` | ✅ S3 | Correlation IDs, RFC 9457 problem responses, OIDC security. No domain logic. |
 | `audit` | ✅ S3 | Append-only audit events (`AuditLog`). The database rejects updates, deletes and truncation. |
 | `consent` | ✅ S4 | Consent events, withdrawals (cascading), status, and the `ConsentGate` other modules call. Approved for synthetic data on 2026-10-18 (privacy/legal review pending). |
-| `voicesession` | S5 🔒 | Sessions, recordings, audio upload |
+| `voicesession` | ✅ S5 | Sessions, recording metadata, audio upload to encrypted S3-compatible storage; deletes audio when `AUDIO_RECORDING` is withdrawn |
 | `processing` | S6 | Job queue, worker leases, feature-record intake |
 | `researchexport` | S8 | Consent-filtered, re-keyed exports |
 | `identity` | later | Direct identifiers in `identity_db`. No other module may depend on it (ArchUnit). |
@@ -29,7 +29,7 @@ Each top-level package is a module. Spring Modulith tests enforce that modules h
 ```bash
 deploy/local/up.sh                                   # Postgres, storage, Keycloak
 workstream-a/backend/wellness-api/run-local.sh       # API on http://localhost:8080
-workstream-a/backend/wellness-api/smoke-local.sh     # 8 checks with real Keycloak tokens
+workstream-a/backend/wellness-api/smoke-local.sh     # 25 live checks: tokens, consent, upload, storage encryption, deletion
 ```
 
 `run-local.sh` reads the database password from `deploy/local/.env`. The API never has a default password. On first start, Flyway creates the module schemas and the audit table in `app_db`.
@@ -41,7 +41,7 @@ cd workstream-a/backend/wellness-api
 ./gradlew test        # needs Docker: integration tests start postgres:16.4 via Testcontainers
 ```
 
-The suite has 112 tests. Integration tests also record every real request and response to `build/contract-samples/`; run `python3 -m pytest tests/contracts/test_backend_samples.py` from the repo root to validate them against the OpenAPI schemas (CI does this automatically). Integration tests use the full application context and a real PostgreSQL, with no database mocks. They also use the production token validators: only the signing key is swapped, for a test key.
+The suite has 130 tests (Testcontainers: PostgreSQL 16.4 and SeaweedFS 4.47). Integration tests also record every real request and response to `build/contract-samples/`; run `python3 -m pytest tests/contracts/test_backend_samples.py` from the repo root to validate them against the OpenAPI schemas (CI does this automatically). Integration tests use the full application context and a real PostgreSQL, with no database mocks. They also use the production token validators: only the signing key is swapped, for a test key.
 
 | Area | What is checked |
 |---|---|
@@ -66,6 +66,17 @@ Mutation check: removing the audience validator makes exactly the two audience t
 | `POST /v1/consent-events/{id}/withdrawals` | Assigned ASHA worker; ADMIN with reason | Cascades to dependent scopes; 202, or 200 for a no-op or replay |
 | `GET /v1/participants/{ref}/consent-status` | As for reads | Latest event's status and effective scopes |
 
+### Voice sessions (S5)
+
+| Operation | Who | Notes |
+|---|---|---|
+| `POST /v1/voice-sessions` | Assigned ASHA worker (`voice:write`) | Needs `SCREENING_PARTICIPATION` + `AUDIO_RECORDING` on the referenced consent event; capture time not before consent; `PARTICIPANT` data refused in every current environment |
+| `GET /v1/voice-sessions/{id}` | Assigned ASHA worker; ADMIN with reason | Status only, never audio |
+| `POST /v1/voice-sessions/{id}/recordings` | Assigned ASHA worker | Registers size and SHA-256 before upload |
+| `PUT .../recordings/{id}/content` | Assigned ASHA worker | `audio/wav` or `audio/flac`, ≤ 25 MB. The server hashes the body itself, checks the file signature, re-checks consent, and stores with SSE-S3 |
+
+Withdrawing `AUDIO_RECORDING` cancels the event's sessions and deletes stored audio after the withdrawal commits (retried every minute until done).
+
 Clinicians get 404 until clinician assignment exists (case module). Downstream withdrawal actions report `NOT_APPLICABLE` until the modules that hold audio and jobs (S5, S6) register handlers.
 
 ## Security behaviour
@@ -83,6 +94,8 @@ Clinicians get 404 until clinician assignment exists (case module). Downstream w
 | `WELLNESS_DB_URL` | `jdbc:postgresql://localhost:5433/app_db` | |
 | `WELLNESS_DB_USER` | `app_user` | |
 | `WELLNESS_DB_PASSWORD` | **none (required)** | |
+| `WELLNESS_STORAGE_ENDPOINT` | `http://localhost:8333` | S3-compatible endpoint |
+| `WELLNESS_STORAGE_ACCESS_KEY` / `_SECRET_KEY` | **none (required)** | Bucket-scoped key; `run-local.sh` reads `STORAGE_APP_*` from `deploy/local/.env` |
 | `WELLNESS_PSEUDONYM_KEY` | **none (required)** | HMAC key for `wkr_` worker references (≥ 32 chars). `run-local.sh` adds one to `deploy/local/.env` if missing. |
 | `WELLNESS_JWT_ISSUER` | `http://localhost:8081/realms/wellness-local` | Must match the token's `iss` |
 | `WELLNESS_JWT_JWK_SET_URI` | local Keycloak certs URL | Can point at an internal hostname inside Docker |

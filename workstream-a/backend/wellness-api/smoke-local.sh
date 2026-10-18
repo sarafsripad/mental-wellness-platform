@@ -79,5 +79,43 @@ else
   echo "  FAIL consent status: ${STATUS:0:200}"; FAIL=$((FAIL + 1))
 fi
 
+# --- voice session and upload (S5) ---------------------------------------------
+TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
+python3 - "$TMPD/probe.wav" <<'PY'
+import math, struct, sys
+rate, n = 16000, 16000 * 5
+data = b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 150 * i / rate))) for i in range(n))
+hdr = b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+open(sys.argv[1], "wb").write(hdr + b"data" + struct.pack("<I", len(data)) + data)
+PY
+SHA=$(shasum -a 256 "$TMPD/probe.wav" | cut -d' ' -f1); SIZE=$(wc -c < "$TMPD/probe.wav" | tr -d ' ')
+SESS="sess_$(hex)"; REC="rec_$(hex)"; LATER="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+CE2="ce_$(hex)"; PPT2="ppt_$(hex)"
+CONSENT2="${CONSENT//$CE/$CE2}"; CONSENT2="${CONSENT2//$PPT/$PPT2}"
+expect "record consent for voice participant"    201 ""   -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(python3 -c 'import uuid;print(uuid.uuid4())')" "${J[@]}" -d "$CONSENT2" "$API/v1/consent-events"
+SESSION="{\"session_id\":\"$SESS\",\"participant_ref\":\"$PPT2\",\"consent_event_id\":\"$CE2\",\"language_tag\":\"kn-IN\",\"prompt_set\":{\"prompt_set_id\":\"baseline-voice-tasks\",\"prompt_set_version\":\"0.1.0\"},\"captured_at_utc\":\"$LATER\",\"device\":{\"device_class\":\"ANDROID_PHONE\",\"app_version\":\"0.1.0\",\"os_family\":\"ANDROID\"},\"data_origin\":\"SYNTHETIC\"}"
+expect "create voice session"                     201 ""   -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(python3 -c 'import uuid;print(uuid.uuid4())')" "${J[@]}" -d "$SESSION" "$API/v1/voice-sessions"
+expect "participant data is refused"              422 DATA_ORIGIN_NOT_PERMITTED -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(python3 -c 'import uuid;print(uuid.uuid4())')" "${J[@]}" -d "$(echo "$SESSION" | sed "s/$SESS/sess_$(hex)/; s/SYNTHETIC/PARTICIPANT/")" "$API/v1/voice-sessions"
+RECORDING="{\"recording_id\":\"$REC\",\"prompt_id\":\"sustained-vowel-a\",\"format\":\"WAV_PCM_S16LE\",\"sampling_rate_hz\":16000,\"channels\":1,\"duration_seconds\":5.0,\"size_bytes\":$SIZE,\"sha256\":\"$SHA\",\"recorded_at_utc\":\"$LATER\"}"
+expect "register recording"                       201 ""   -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(python3 -c 'import uuid;print(uuid.uuid4())')" "${J[@]}" -d "$RECORDING" "$API/v1/voice-sessions/$SESS/recordings"
+expect "wrong checksum header is rejected"        422 CHECKSUM_MISMATCH -X PUT -H "Authorization: Bearer $ASHA" -H "Content-Type: audio/wav" -H "X-Content-SHA256: $(printf '0%.0s' {1..64})" --data-binary "@$TMPD/probe.wav" "$API/v1/voice-sessions/$SESS/recordings/$REC/content"
+expect "upload synthetic audio"                   200 ""   -X PUT -H "Authorization: Bearer $ASHA" -H "Content-Type: audio/wav" -H "X-Content-SHA256: $SHA" --data-binary "@$TMPD/probe.wav" "$API/v1/voice-sessions/$SESS/recordings/$REC/content"
+S3=(docker run --rm --network "${COMPOSE_PROJECT_NAME}_data" -e AWS_ACCESS_KEY_ID="$STORAGE_ROOT_ACCESS_KEY" -e AWS_SECRET_ACCESS_KEY="$STORAGE_ROOT_SECRET_KEY" -e AWS_DEFAULT_REGION=us-east-1 amazon/aws-cli:2.37.4 --endpoint-url http://storage:8333)
+HEAD=$("${S3[@]}" s3api head-object --bucket wellness-audio --key "audio/$REC" 2>&1)
+if [[ "$HEAD" == *'"ServerSideEncryption": "AES256"'* && "$HEAD" == *"\"ContentLength\": $SIZE"* ]]; then
+  echo "  PASS audio is in storage, encrypted (AES256), full size"; PASS=$((PASS + 1))
+else
+  echo "  FAIL storage object: ${HEAD:0:200}"; FAIL=$((FAIL + 1))
+fi
+WD2="{\"withdrawal_id\":\"cw_$(hex)\",\"scopes\":[\"AUDIO_RECORDING\"],\"withdrawn_at_utc\":\"$LATER\",\"channel\":\"IN_PERSON_ASHA\"}"
+expect "withdraw audio recording"                 202 ""   -H "Authorization: Bearer $ASHA" -H "Idempotency-Key: $(python3 -c 'import uuid;print(uuid.uuid4())')" "${J[@]}" -d "$WD2" "$API/v1/consent-events/$CE2/withdrawals"
+if "${S3[@]}" s3api head-object --bucket wellness-audio --key "audio/$REC" >/dev/null 2>&1; then
+  echo "  FAIL audio still in storage after withdrawal"; FAIL=$((FAIL + 1))
+else
+  echo "  PASS audio deleted from storage after withdrawal"; PASS=$((PASS + 1))
+fi
+SESSION_NOW=$(curl -s -H "Authorization: Bearer $ASHA" "$API/v1/voice-sessions/$SESS")
+[[ "$SESSION_NOW" == *'"status":"CANCELLED"'* ]] && { echo "  PASS session is CANCELLED"; PASS=$((PASS + 1)); } || { echo "  FAIL session: ${SESSION_NOW:0:200}"; FAIL=$((FAIL + 1)); }
+
 echo; echo "smoke: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

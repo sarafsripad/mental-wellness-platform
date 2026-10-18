@@ -7,9 +7,11 @@ import java.lang.annotation.Target;
 
 import org.mentalwellness.api.support.TestOnlyController;
 import org.mentalwellness.api.support.TestSecurityConfiguration;
+import org.mentalwellness.api.voicesession.internal.AudioStoreTestAccess;
 
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.MockMvcPrint;
 import org.springframework.context.annotation.Import;
 
 /**
@@ -20,7 +22,9 @@ import org.springframework.context.annotation.Import;
 @Retention(RetentionPolicy.RUNTIME)
 @SpringBootTest(properties = { "spring.flyway.locations=classpath:db/migration,classpath:db/local-seed",
 		"wellness.pseudonyms.key=test-only-pseudonym-key-0123456789abcdef" })
-@AutoConfigureMockMvc
-@Import({ TestcontainersConfiguration.class, TestSecurityConfiguration.class, TestOnlyController.class })
+// No request/response dumps on failure: they would print bearer tokens and raw audio into CI logs.
+@AutoConfigureMockMvc(print = MockMvcPrint.NONE)
+@Import({ TestcontainersConfiguration.class, TestSecurityConfiguration.class, TestOnlyController.class,
+		AudioStoreTestAccess.class })
 public @interface IntegrationTest {
 }
