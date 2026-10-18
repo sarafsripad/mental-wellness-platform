@@ -22,7 +22,9 @@ import org.springframework.context.annotation.Import;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @SpringBootTest(properties = { "spring.flyway.locations=classpath:db/migration,classpath:db/local-seed",
-		"wellness.pseudonyms.key=test-only-pseudonym-key-0123456789abcdef" })
+		"wellness.pseudonyms.key=test-only-pseudonym-key-0123456789abcdef",
+		"wellness.export.dir=build/research-export-samples",
+		"wellness.export.key=test-only-export-key-0123456789abcdef0123" })
 // No request/response dumps on failure: they would print bearer tokens and raw audio into CI logs.
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @Import({ TestcontainersConfiguration.class, TestSecurityConfiguration.class, TestOnlyController.class,

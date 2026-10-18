@@ -70,6 +70,41 @@ public final class ApiDriver {
 		return r;
 	}
 
+	public Participant consentedParticipant(TestTokens.Builder asha, Set<String> granted) throws Exception {
+		Participant p = new Participant(Ids.of("ppt"), Ids.of("ce"), Instant.now().minusSeconds(7200));
+		expect(201, postJson("/v1/consent-events", asha, Fixtures.consent(p.consentEventId(), p.participantRef(), granted, p.consentedAt())));
+		return p;
+	}
+
+	/**
+	 * A recording processed through the real worker API: submitted, claimed, and completed with the
+	 * contract's own valid example record. Returns the application feature-record ID.
+	 */
+	public String processedRecord(TestTokens.Builder asha, TestTokens.Builder worker, Participant p, java.nio.file.Path example)
+			throws Exception {
+		Recording r = storedRecording(asha, p);
+		expect(202, postJson("/v1/processing-jobs", asha, Map.of("recording_id", r.recordingId(),
+				"pipeline_profile", "EGEMAPS_V02_FUNCTIONALS_V1")));
+		String workerId = "wrk_" + Ids.of("x").substring(2, 18);
+		MvcResult claim = this.mvc.perform(post("/internal/v1/processing-jobs/claim")
+			.header(HttpHeaders.AUTHORIZATION, "Bearer " + worker.build()).header("X-Worker-Id", workerId)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"supported_profiles\":[\"EGEMAPS_V02_FUNCTIONALS_V1\"],\"worker_version\":\"0.1.0\"}")).andReturn();
+		Map<String, Object> lease = body(expect(200, claim));
+		tools.jackson.databind.node.ObjectNode record =
+				(tools.jackson.databind.node.ObjectNode) this.json.readTree(java.nio.file.Files.readString(example));
+		String recordId = Ids.of("frec");
+		record.put("record_id", recordId);
+		record.put("session_id", (String) lease.get("session_id"));
+		record.put("recording_id", (String) lease.get("recording_id"));
+		record.put("processing_job_id", (String) lease.get("job_id"));
+		expect(201, this.mvc.perform(post("/internal/v1/processing-jobs/{id}/result", lease.get("job_id"))
+			.header(HttpHeaders.AUTHORIZATION, "Bearer " + worker.build()).header("X-Worker-Id", workerId)
+			.header("X-Lease-Token", (String) lease.get("lease_token")).header("X-Correlation-ID", UUID.randomUUID().toString())
+			.contentType(MediaType.APPLICATION_JSON).content(this.json.writeValueAsString(record))).andReturn());
+		return recordId;
+	}
+
 	public MvcResult withdraw(TestTokens.Builder asha, String consentEventId, List<String> scopes) throws Exception {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("withdrawal_id", Ids.of("cw"));

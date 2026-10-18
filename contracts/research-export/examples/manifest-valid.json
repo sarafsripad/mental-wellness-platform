@@ -1,0 +1,13 @@
+{
+  "manifest_version": "1.0.0",
+  "export_id": "exp_00000000000000000000000000000001",
+  "created_at_utc": "2026-10-18T12:00:00Z",
+  "feature_schema_version": "2.0.0",
+  "records_file": { "name": "exp_00000000000000000000000000000001.jsonl", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "bytes": 0 },
+  "record_count": 0,
+  "rekey": { "method": "HMAC-SHA256-TRUNC128-V1", "key_id": "key_0000000000000001" },
+  "split_groups": {},
+  "model_training_excluded": [],
+  "withdrawn_record_ids": [],
+  "exclusions": { "no_research_consent": 0, "audio_consent_withdrawn": 0 }
+}

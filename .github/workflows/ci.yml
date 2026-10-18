@@ -47,6 +47,9 @@ jobs:
       - name: Contract test suite
         run: python -m pytest tests/contracts -q
 
+      - name: Research pipeline (Workstream B) tests
+        run: python -m pytest workstream-b/research-pipeline/tests -q
+
       - name: Lint (advisory)
         run: bash scripts/lint-check.sh
 
@@ -83,6 +86,8 @@ jobs:
           python -m pip install -r requirements-dev.txt
           test -n "$(ls workstream-a/backend/wellness-api/build/contract-samples/*.json 2>/dev/null)"
           python -m pytest tests/contracts/test_backend_samples.py -q
+          # Exports written by the Java producer must pass the Workstream B consumer unchanged.
+          python -m pytest workstream-b/research-pipeline/tests -q
 
       - name: Upload test reports on failure
         if: failure()

@@ -6,6 +6,7 @@ import jakarta.servlet.DispatcherType;
 import org.mentalwellness.api.audit.AuditLog;
 import org.mentalwellness.api.shared.web.ProblemResponses;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,6 +25,8 @@ import org.springframework.security.web.SecurityFilterChain;
  * starting in slice step S4.
  */
 @Configuration
+// Only for the web server; the one-shot export (run-export.sh) runs without one.
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @EnableMethodSecurity
 @EnableConfigurationProperties(JwtProperties.class)
 class SecurityConfig {

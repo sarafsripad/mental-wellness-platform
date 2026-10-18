@@ -21,7 +21,7 @@ Each top-level package is a module. Spring Modulith tests enforce that modules h
 | `consent` | ✅ S4 | Consent events, withdrawals (cascading), status, and the `ConsentGate` other modules call. Approved for synthetic data on 2026-10-18 (privacy/legal review pending). |
 | `voicesession` | ✅ S5 | Sessions, recording metadata, audio upload to encrypted S3-compatible storage; deletes audio when `AUDIO_RECORDING` is withdrawn |
 | `processing` | ✅ S6 | PostgreSQL job queue (`SKIP LOCKED`), worker leases, feature-record intake validated against the contract schema; cancels jobs and flags records on withdrawal |
-| `researchexport` | S8 | Consent-filtered, re-keyed exports |
+| `researchexport` | ✅ S8 | Consent-filtered, re-keyed, date-truncated exports with a contract-validated manifest. Run only by a person (`run-export.sh`). |
 | `identity` | later | Direct identifiers in `identity_db`. No other module may depend on it (ArchUnit). |
 
 ## Run locally
@@ -41,7 +41,7 @@ cd workstream-a/backend/wellness-api
 ./gradlew test        # needs Docker: integration tests start postgres:16.4 via Testcontainers
 ```
 
-The suite has 148 tests (Testcontainers: PostgreSQL 16.4 and SeaweedFS 4.47). Integration tests also record every real request and response to `build/contract-samples/`; run `python3 -m pytest tests/contracts/test_backend_samples.py` from the repo root to validate them against the OpenAPI schemas (CI does this automatically). Integration tests use the full application context and a real PostgreSQL, with no database mocks. They also use the production token validators: only the signing key is swapped, for a test key.
+The suite has 156 tests (Testcontainers: PostgreSQL 16.4 and SeaweedFS 4.47). Integration tests also record every real request and response to `build/contract-samples/`; run `python3 -m pytest tests/contracts/test_backend_samples.py` from the repo root to validate them against the OpenAPI schemas (CI does this automatically). Integration tests use the full application context and a real PostgreSQL, with no database mocks. They also use the production token validators: only the signing key is swapped, for a test key.
 
 | Area | What is checked |
 |---|---|
@@ -76,6 +76,15 @@ Mutation check: removing the audience validator makes exactly the two audience t
 | `PUT .../recordings/{id}/content` | Assigned ASHA worker | `audio/wav` or `audio/flac`, ≤ 25 MB. The server hashes the body itself, checks the file signature, re-checks consent, and stores with SSE-S3 |
 
 Withdrawing `AUDIO_RECORDING` cancels the event's sessions and deletes stored audio after the withdrawal commits (retried every minute until done).
+
+### Research export (S8)
+
+Run `run-export.sh`. It builds one export and exits, with no web server, endpoint or schedule (rule 5). Each export is a full snapshot of the records eligible **at export time**: not flagged, and `RESEARCH_FEATURE_REUSE` in effect.
+
+- **Re-keying:** every ID becomes `prefix_` + 128 bits of HMAC-SHA-256 with `WELLNESS_EXPORT_KEY`. The result is stable across exports, irreversible, and the key never leaves the application.
+- **Minimisation:** timestamps are truncated to the date, and `degraded_reason` is replaced with fixed text.
+- **Manifest:** carries `split_groups` (re-keyed session → `grp_` group, for participant-level splits), `model_training_excluded`, and `withdrawn_record_ids`. Each withdrawal is announced once.
+- **Validation:** every exported record and the manifest are validated against the contracts before anything is written. Files are written atomically, records first.
 
 ### Processing (S6)
 

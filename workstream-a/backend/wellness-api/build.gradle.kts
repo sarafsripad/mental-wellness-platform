@@ -65,6 +65,9 @@ tasks.processResources {
 	from(rootProject.projectDir.resolve("../../../contracts/voice-features/feature-record.schema.json")) {
 		into("contracts")
 	}
+	from(rootProject.projectDir.resolve("../../../contracts/research-export/export-manifest.schema.json")) {
+		into("contracts")
+	}
 }
 
 tasks.withType<Test> {

@@ -153,6 +153,22 @@ class JobRepository {
 			.query(Integer.class).single() > 0;
 	}
 
+	java.util.List<org.mentalwellness.api.processing.FeatureRecords.Stored> featureRecords(String where, Object... params) {
+		return this.jdbc.sql("""
+				SELECT f.record_id, f.consent_event_id, j.participant_ref, f.session_id, f.flagged_at IS NOT NULL, f.record::text
+				FROM processing.feature_record f JOIN processing.job j ON j.job_id = f.job_id
+				""" + where + " ORDER BY f.created_at, f.record_id")
+			.params(params)
+			.query((rs, n) -> new org.mentalwellness.api.processing.FeatureRecords.Stored(rs.getString(1), rs.getString(2),
+					rs.getString(3), rs.getString(4), rs.getBoolean(5), rs.getString(6)))
+			.list();
+	}
+
+	boolean hasFeatureRecords(String consentEventId) {
+		return this.jdbc.sql("SELECT count(*) FROM processing.feature_record WHERE consent_event_id = ?").param(consentEventId)
+			.query(Integer.class).single() > 0;
+	}
+
 	int flagFeatureRecords(String consentEventId) {
 		return this.jdbc.sql("UPDATE processing.feature_record SET flagged_at = now() WHERE consent_event_id = ? AND flagged_at IS NULL")
 			.param(consentEventId).update();
