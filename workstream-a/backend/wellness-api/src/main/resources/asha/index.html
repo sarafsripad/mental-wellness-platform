@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASHA Care</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="i18n.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <div>
+    <div class="brand">♡ ASHA Care</div>
+    <div class="sub">Mental Wellness Assessment · Field-worker app (local test build)</div>
+  </div>
+  <div class="header-right">
+    <span class="pill" id="connection">● Online</span>
+    <button class="linkbtn" id="logout" type="button" hidden>Log out</button>
+  </div>
+</header>
+<div class="banner" role="note">SYNTHETIC TEST DATA ONLY — not a validated clinical tool. Do not enter real people's information.</div>
+<main>
+  <section class="phone" aria-live="polite">
+    <div class="top">
+      <div class="eyebrow" id="stepLabel">Welcome</div>
+      <h1 id="screenTitle">Choose your language</h1>
+      <div class="sub muted" id="screenSub"></div>
+    </div>
+    <progress id="progress" max="10" value="0"></progress>
+    <div class="content" id="screen"></div>
+  </section>
+  <aside>
+    <div class="sidecard">
+      <h3>Field visit status</h3>
+      <p id="saveStatus">No assessment started</p>
+      <p><span class="status" id="syncStatus">Not synced</span></p>
+    </div>
+    <div class="sidecard">
+      <h3 data-t="Privacy by design">Privacy by design</h3>
+      <p>Names and villages are encrypted in a separate identity store and are never shown again. Everything else is saved as coded answers, with no free text.</p>
+    </div>
+    <div class="sidecard">
+      <h3 data-t="Safety reminder">Safety reminder</h3>
+      <p data-t="This tool does not diagnose. Urgent concerns require trained human support and the approved local referral protocol.">This tool does not diagnose. Urgent concerns require trained human support and the approved local referral protocol.</p>
+    </div>
+    <div class="sidecard" id="langCard" hidden>
+      <h3>Translations</h3>
+      <p id="langNote"></p>
+    </div>
+  </aside>
+</main>
+<footer>Local test build of the ASHA Care prototype. Data goes to the local wellness API only, and only synthetic data is accepted. Translations are unreviewed prototype translations; questions are illustrative and not validated; there is no approved urgent-risk protocol yet. No diagnosis or score is ever produced.</footer>
+</body>
+</html>

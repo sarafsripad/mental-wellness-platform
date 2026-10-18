@@ -129,10 +129,14 @@ ASHA=$(curl -sf -d grant_type=password -d client_id=wellness-e2e -d client_secre
 check  "synthetic ASHA user can log in (e2e client)" test -n "$ASHA"
 check  "ASHA token has role ASHA_WORKER"           has "$ASHA" ASHA_WORKER
 check  "ASHA token has scope consent:write"        has "$ASHA" 'consent:write'
+check  "ASHA token has scope cases:write"          has "$ASHA" 'cases:write'
 refuse "ASHA token has no processing:worker scope" has "$ASHA" 'processing:worker'
 refuse "ASHA token carries no name or email"       has "$ASHA" '"(name|given_name|family_name|email|preferred_username)"'
 refuse "mobile client refuses the password grant" \
        curl -sf -d grant_type=password -d client_id=wellness-mobile \
+       -d username=asha.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL"
+refuse "ASHA web client refuses the password grant" \
+       curl -sf -d grant_type=password -d client_id=wellness-asha-web \
        -d username=asha.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL"
 
 echo "=== Exposure"

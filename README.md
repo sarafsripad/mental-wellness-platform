@@ -151,6 +151,26 @@ With the stack, API and worker running, open **http://localhost:8080/dev-console
 
 There's no microphone and no file upload, so only synthetic audio can be sent. The console exists only when `run-local.sh` enables it, and it refuses to run anywhere that accepts participant data.
 
+### ASHA Care web app (local only, synthetic data)
+
+With the stack and API running, open **http://localhost:8080/asha/** and log in as `asha.test1`. It's the ASHA Care prototype's flow in 12 languages: registration, consent, health, wellness, lifestyle, safety check and summary. Each saved visit goes through the API, in this order ([ADR-013](docs/architecture/architecture-decisions.md#adr-013-asha-assessment-cases-and-write-only-identity-intake)):
+
+1. consent event
+2. case
+3. identity (name and village, encrypted into `identity_db`, write-only)
+4. observations
+5. questionnaire
+6. completion
+
+**Limits of this build:**
+- Answers are stored as coded values. Nothing is scored.
+- A self-harm answer of "sometimes" or "often" raises an urgent-review flag for human follow-up.
+- The questions are illustrative and NOT validated.
+- Translations are unreviewed prototype translations. Text marked `EN` has none and is shown in English.
+- Free-text notes are disabled.
+- The API accepts `SYNTHETIC` data only.
+- "Offline" mode keeps unsynced visits in page memory only, so reloading the page discards them.
+
 ### End-to-end (vertical slice)
 
 With the local stack, the API and the worker running:
@@ -159,7 +179,7 @@ With the local stack, the API and the worker running:
 cd deploy/local && ./up.sh                                      # 1. infrastructure
 workstream-a/backend/wellness-api/run-local.sh                  # 2. API (own terminal)
 workstream-a/processing-worker/run-local.sh                     # 3. worker (own terminal)
-python3 -m pytest tests/e2e -q                                  # 4. 10 end-to-end tests
+python3 -m pytest tests/e2e -q                                  # 4. 12 end-to-end tests
 ```
 
 These tests drive synthetic participants through consent, upload, openSMILE processing, export and Workstream B ingest, then check the results in the database, storage and logs. Research exports are made with `workstream-a/backend/wellness-api/run-export.sh`; see [workstream-b/research-pipeline](workstream-b/research-pipeline/README.md).

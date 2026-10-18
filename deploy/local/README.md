@@ -23,7 +23,7 @@ The `wellness-api` (S3) and `audio-processing-worker` (S7) services will be adde
 cd deploy/local
 ./init-env.sh     # once: writes .env with random local secrets (gitignored, mode 600)
 ./up.sh           # checks .env is complete, then docker compose up -d
-./verify.sh       # 32 checks; exits 0 when all pass
+./verify.sh       # 34 checks; exits 0 when all pass
 ```
 
 First start takes a few minutes while images download, and Keycloak takes about 30 seconds to become healthy.
@@ -58,10 +58,11 @@ Example connection: `PGPASSWORD=<APP_DB_PASSWORD> psql -h 127.0.0.1 -p 5433 -U a
 
 | Client | Flow | Default scopes |
 |---|---|---|
-| `wellness-mobile` | Authorization code + PKCE (S256). Password grant disabled. | `consent:*`, `voice:*`, `processing:read/write` |
+| `wellness-mobile` | Authorization code + PKCE (S256). Password grant disabled. | `consent:*`, `voice:*`, `processing:read/write`, `cases:*` |
 | `processing-worker` | Client credentials only | `processing:worker` |
 | `wellness-e2e` | Password grant. **Exists only here**, for automated tests; never create it elsewhere. | Same as mobile |
-| `wellness-dev-console` | Authorization code + PKCE for the browser test console at `http://localhost:8080/dev-console/`. **Exists only here.** | Same as mobile |
+| `wellness-dev-console` | Authorization code + PKCE for the browser test console at `http://localhost:8080/dev-console/`. **Exists only here.** | `consent:*`, `voice:*`, `processing:read/write` |
+| `wellness-asha-web` | Authorization code + PKCE for the ASHA Care web app at `http://localhost:8080/asha/`. **Exists only here.** | `consent:*`, `cases:*` (no voice) |
 
 **Tokens:**
 - Issuer: `http://localhost:8081/realms/wellness-local`, including when Keycloak is reached from containers.
@@ -87,13 +88,13 @@ Realm roles are `ASHA_WORKER`, `CLINICIAN`, `ADMIN` and `PROCESSING_WORKER`. The
 - **Keycloak:**
   - discovery document and issuer
   - the worker gets only `processing:worker`, with the right role and audience
-  - a synthetic ASHA user gets `ASHA_WORKER`, has no worker scope, and the token has no personal data
-  - the mobile client refuses the password grant
+  - a synthetic ASHA user gets `ASHA_WORKER` and `cases:write`, has no worker scope, and the token has no personal data
+  - the mobile and ASHA web clients refuse the password grant
 - **Exposure:** ports bind to `127.0.0.1` only.
 
 ## When the realm file changes
 
-Keycloak imports `keycloak/wellness-local-realm.json` only when the realm is first created. After pulling a change to it (for example the `wellness-dev-console` client), recreate Keycloak. It keeps nothing except the imported realm, and the synthetic users and secrets come back from `.env`:
+Keycloak imports `keycloak/wellness-local-realm.json` only when the realm is first created. After pulling a change to it (for example the `wellness-asha-web` client or the `cases:*` scopes), recreate Keycloak. It keeps nothing except the imported realm, and the synthetic users and secrets come back from `.env`:
 
 ```bash
 docker compose up -d --force-recreate keycloak

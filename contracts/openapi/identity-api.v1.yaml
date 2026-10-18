@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: Mental Wellness Platform — Identity API
+  version: 1.0.0-draft.1
+  summary: Write-only intake of direct identifiers into the identity module (ADR-010, ADR-013).
+  description: |
+    The only API that accepts direct identifiers. It is kept apart from `wellness-api.v1.yaml`
+    so that document can guarantee it never carries names or places, and so this operation can
+    move to a separate identity service later (ADR-010) without changing the wellness API.
+
+    **Write-only.** Identifiers are stored encrypted in `identity_db`, keyed by the pseudonymous
+    `participant_ref`. No operation in any API returns them. An audited identity lookup is future
+    work and needs privacy-lead approval.
+
+    **Consent first.** The participant's consent event must already be recorded, with
+    SCREENING_PARTICIPATION in effect. Nothing is stored for a participant who declines.
+
+    **Data minimisation (pending review).** The fields are those of the ASHA prototype: a name or
+    locally approved identifier, and a village. The privacy lead must confirm them before any real
+    data (consent-and-data-lifecycle.md §14). 1.0 accepts SYNTHETIC data only.
+
+    Uses the cross-cutting rules of `wellness-api.v1.yaml`: OIDC bearer tokens, `X-Correlation-ID`,
+    RFC 9457 problems that never echo submitted values, and audit events that hold no values.
+  contact:
+    name: Platform architecture (solution-architect)
+servers:
+  - url: http://localhost:8080
+    description: Local development (Docker Compose) only.
+security:
+  - oidc: []
+tags:
+  - name: identity
+    description: Direct identifiers, write-only.
+
+paths:
+  /v1/participants/{participantRef}/identity:
+    put:
+      tags: [identity]
+      operationId: putParticipantIdentity
+      summary: Store or replace a participant's identifiers
+      description: |
+        Creates or replaces the identity record for `participant_ref`. PUT is idempotent by
+        nature: repeating the same request leaves the same record. The response has no body.
+      security:
+        - oidc: [cases:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must be assigned to participant_ref.
+      x-consent-prerequisite: consent_event_id must belong to participant_ref and have SCREENING_PARTICIPATION in effect. Otherwise 422 CONSENT_NOT_ACTIVE or CONSENT_PARTICIPANT_MISMATCH.
+      x-audit-events: [IDENTITY_RECORD_STORED, IDENTITY_RECORD_REJECTED, IDENTITY_RECORD_FAILED]
+      parameters:
+        - $ref: 'wellness-api.v1.yaml#/components/parameters/CorrelationId'
+        - $ref: 'wellness-api.v1.yaml#/components/parameters/ParticipantRef'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdentityRecordPut' }
+            examples:
+              synthetic: { $ref: '#/components/examples/IdentityRecordPutExample' }
+      responses:
+        '204':
+          description: Stored. Nothing is returned.
+          headers:
+            X-Correlation-ID: { $ref: 'wellness-api.v1.yaml#/components/headers/CorrelationId' }
+        '400': { $ref: 'wellness-api.v1.yaml#/components/responses/BadRequest' }
+        '401': { $ref: 'wellness-api.v1.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: 'wellness-api.v1.yaml#/components/responses/Forbidden' }
+        '422': { $ref: 'wellness-api.v1.yaml#/components/responses/UnprocessableConsent' }
+        '500': { $ref: 'wellness-api.v1.yaml#/components/responses/InternalError' }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: http://localhost:8081/realms/wellness-local/.well-known/openid-configuration
+      description: Local development identity provider (Keycloak in Docker Compose).
+
+  schemas:
+    IdentityRecordPut:
+      type: object
+      required: [consent_event_id, data_origin, display_name, village_name]
+      additionalProperties: false
+      properties:
+        consent_event_id: { $ref: 'wellness-api.v1.yaml#/components/schemas/ConsentEventId' }
+        data_origin:
+          type: string
+          enum: [SYNTHETIC, PARTICIPANT]
+          description: Only SYNTHETIC is accepted in 1.0 (422 DATA_ORIGIN_NOT_PERMITTED otherwise).
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name or locally approved identifier, as given. Stored encrypted; never returned or logged.
+        village_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Village, as given. Stored encrypted; never returned or logged. Not a coded locality.
+
+  examples:
+    IdentityRecordPutExample:
+      summary: Synthetic identity (invented values)
+      value:
+        consent_event_id: ce_00000000000000000000000000000002
+        data_origin: SYNTHETIC
+        display_name: Synthetic Person 0001
+        village_name: Test Village A

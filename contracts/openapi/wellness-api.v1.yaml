@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Mental Wellness Platform — Wellness API
-  version: 1.0.0-draft.1
-  summary: First-slice public API — consent, voice sessions, recordings and audio-processing jobs.
+  version: 1.1.0-draft.1
+  summary: Public API — consent, voice sessions, recordings, audio-processing jobs, and ASHA assessment cases.
   description: |
     Public API of the wellness backend (a Spring Boot modular monolith, Java 21) used by the
     React Native app and, later, the clinician web app.
@@ -12,7 +12,12 @@ info:
     data. See docs/privacy/consent-and-data-lifecycle.md.
 
     **Clinical safety:** No operation in this API returns a diagnosis, risk score or model
-    prediction. Processing jobs report technical status and audio quality only.
+    prediction. Processing jobs report technical status and audio quality only. Case operations
+    store coded answers as entered; no score is computed. The only questionnaire in 1.1 is
+    illustrative and NOT VALIDATED, so case operations accept SYNTHETIC data only.
+
+    **Direct identifiers** (name, village) are never part of this API. They are written once,
+    write-only, through `identity-api.v1.yaml` and stored only in the identity database (ADR-010).
 
     ## Cross-cutting rules
     - **Authentication:** OIDC bearer access tokens (authorization code + PKCE for the mobile app).
@@ -42,9 +47,9 @@ info:
       consent event never revives an older, withdrawn one). Capture timestamps must not be
       earlier than the event's `captured_at_utc`, and must not be later than any withdrawal of a
       required scope recorded for that event.
-    - **Assignment (v1):** until the case module exists, a `participant_ref` is assigned to the
-      ASHA worker who records its first consent event. Reassignment is an ADMIN operation (not
-      yet specified).
+    - **Assignment (v1):** a `participant_ref` is assigned to the ASHA worker who records its
+      first consent event. Cases follow their participant's assignment. Reassignment is an ADMIN
+      operation (not yet specified).
     - **Consent:** operations list their consent prerequisites in `x-consent-prerequisite`. The
       server enforces them and the client check is only a convenience.
   contact:
@@ -61,6 +66,11 @@ tags:
     description: Voice session creation and recording metadata/content submission.
   - name: processing
     description: Audio-processing job submission and status.
+  - name: cases
+    description: |
+      ASHA assessment visits (1.1, promoted from wellness-api-provisional.v0.yaml). A case holds
+      coded answers only: age band, gender, health and lifestyle observations, questionnaire
+      answers and the worker's follow-up decision. No free text (consent-and-data-lifecycle.md §8).
 
 paths:
   /v1/consent-events:
@@ -515,6 +525,271 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /v1/cases:
+    post:
+      tags: [cases]
+      operationId: createCase
+      summary: Open an assessment case for a consented participant
+      description: |
+        Opens a case after consent has been recorded (the client records the consent event first,
+        then the case, then the identity record through identity-api.v1.yaml). Holds coded,
+        non-identifying registration answers only.
+      security:
+        - oidc: [cases:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must be assigned to participant_ref.
+      x-consent-prerequisite: consent_event_id must belong to participant_ref, SCREENING_PARTICIPATION must be in effect on that event, and opened_at_utc must not be before the event's capture time. Otherwise 422 CONSENT_NOT_ACTIVE or CONSENT_PARTICIPANT_MISMATCH. age_band AGE_UNDER_18 returns 422 ADULT_CONFIRMATION_REQUIRED (minors need an approved child pathway).
+      x-audit-events: [CASE_CREATED, CASE_REJECTED]
+      x-idempotency: case_id plus Idempotency-Key.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CaseCreate' }
+            examples:
+              synthetic: { $ref: '#/components/examples/CaseCreateExample' }
+      responses:
+        '201':
+          description: Case opened.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+              examples:
+                opened: { $ref: '#/components/examples/CaseOpenExample' }
+        '200':
+          description: Idempotent replay.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    get:
+      tags: [cases]
+      operationId: listMyCases
+      summary: List the caller's cases
+      description: Cases opened by the calling ASHA worker, newest first. Backs the "My households" and "Follow-ups" screens. Pseudonymous view only.
+      security:
+        - oidc: [cases:read]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Only cases the caller opened.
+      x-consent-prerequisite: none
+      x-audit-events: [CASE_LIST_READ]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: follow_up
+          in: query
+          required: false
+          description: When true, only cases needing human follow-up (follow_up_requested or urgent_review_flag).
+          schema: { type: boolean }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: The caller's cases.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaseList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/cases/{caseId}:
+    get:
+      tags: [cases]
+      operationId: getCase
+      summary: Retrieve a case (pseudonymous view)
+      description: Returns the case without direct identifiers. Identity is never returned by this API.
+      security:
+        - oidc: [cases:read]
+      x-roles: [ASHA_WORKER, ADMIN]
+      x-data-access: ASHA_WORKER only for assigned participants. ADMIN with reason code.
+      x-consent-prerequisite: none
+      x-audit-events: [CASE_READ]
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/CaseId'
+      responses:
+        '200':
+          description: The case.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+              examples:
+                completed: { $ref: '#/components/examples/CaseCompletedExample' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/cases/{caseId}/observations:
+    post:
+      tags: [cases]
+      operationId: submitObservations
+      summary: Submit coded health and lifestyle observations
+      description: |
+        One observation set per case, using the coded catalogue `asha-observations` 0.1.0. Free-text
+        notes are excluded until a policy on sensitive free text is agreed.
+      security:
+        - oidc: [cases:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must be assigned to the case's participant.
+      x-consent-prerequisite: SCREENING_PARTICIPATION in effect on the case's consent event. The case must be OPEN.
+      x-audit-events: [OBSERVATIONS_SUBMITTED, CASE_REJECTED]
+      x-idempotency: observation_set_id plus Idempotency-Key.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ObservationSetCreate' }
+            examples:
+              synthetic: { $ref: '#/components/examples/ObservationSetCreateExample' }
+      responses:
+        '201':
+          description: Recorded.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+        '200':
+          description: Idempotent replay.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/cases/{caseId}/questionnaire-responses:
+    post:
+      tags: [cases]
+      operationId: submitQuestionnaireResponse
+      summary: Submit questionnaire answers
+      description: |
+        One response per case. The only instrument in 1.1 is `illustrative-wellness` 0.1.0, which is
+        NOT VALIDATED and not licensed for screening: it exists to exercise the software with
+        SYNTHETIC data. Answers are stored as coded values and never scored. A SELF_HARM_THOUGHTS
+        answer of SOMETIMES or OFTEN sets `urgent_review_flag` so a trained person follows up; the
+        flag is a prompt for human action, not a risk assessment.
+      security:
+        - oidc: [cases:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must be assigned to the case's participant.
+      x-consent-prerequisite: SCREENING_PARTICIPATION in effect on the case's consent event. The case must be OPEN.
+      x-audit-events: [QUESTIONNAIRE_SUBMITTED, URGENT_REVIEW_FLAG_RAISED, CASE_REJECTED]
+      x-idempotency: response_id plus Idempotency-Key.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionnaireResponseCreate' }
+            examples:
+              synthetic: { $ref: '#/components/examples/QuestionnaireResponseCreateExample' }
+      responses:
+        '201':
+          description: Recorded.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+        '200':
+          description: Idempotent replay.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/cases/{caseId}/completion:
+    post:
+      tags: [cases]
+      operationId: completeCase
+      summary: Complete the visit and record the follow-up decision
+      description: Closes data entry for the case. Requires the questionnaire response (the safety question must have been asked). A completed case accepts no further submissions (409 RESOURCE_CONFLICT).
+      security:
+        - oidc: [cases:write]
+      x-roles: [ASHA_WORKER]
+      x-data-access: Caller must be assigned to the case's participant.
+      x-consent-prerequisite: SCREENING_PARTICIPATION in effect on the case's consent event.
+      x-audit-events: [CASE_COMPLETED, CASE_REJECTED]
+      x-idempotency: Idempotency-Key; replay returns 200 with the completed case.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CaseCompletion' }
+      responses:
+        '201':
+          description: Case completed.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+              examples:
+                completed: { $ref: '#/components/examples/CaseCompletedExample' }
+        '200':
+          description: Idempotent replay.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Case' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
 components:
   securitySchemes:
     oidc:
@@ -566,6 +841,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/JobId' }
+    CaseId:
+      name: caseId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/CaseId' }
 
   headers:
     CorrelationId:
@@ -659,8 +939,15 @@ components:
       pattern: '^frec_[a-f0-9]{32}$'
     LanguageTag:
       type: string
+      enum: [en-IN, te-IN, hi-IN, ta-IN, bn-IN, mr-IN, kn-IN, ml-IN, gu-IN, pa-IN, ur-IN, or-IN]
+      description: |
+        Languages for consent and cases (1.1 added ten). Adding a language is a minor version change.
+        Translations other than en-IN are UNAPPROVED prototype translations: usable with synthetic
+        data only until validated translations are approved (consent-and-data-lifecycle.md §14).
+    VoiceLanguageTag:
+      type: string
       enum: [en-IN, kn-IN]
-      description: Supported languages in v1. Adding a language is a minor version change.
+      description: Languages accepted for voice sessions. Kept at the feature-record schema's set (v2.0.0); widening it needs a feature-record version and research review.
     Timestamp:
       type: string
       format: date-time
@@ -865,7 +1152,7 @@ components:
         session_id: { $ref: '#/components/schemas/SessionId' }
         participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
         consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
-        language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        language_tag: { $ref: '#/components/schemas/VoiceLanguageTag' }
         prompt_set:
           type: object
           required: [prompt_set_id, prompt_set_version]
@@ -897,7 +1184,7 @@ components:
         session_id: { $ref: '#/components/schemas/SessionId' }
         participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
         consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
-        language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        language_tag: { $ref: '#/components/schemas/VoiceLanguageTag' }
         status:
           type: string
           enum: [CREATED, AWAITING_CONTENT, UPLOADED, PROCESSING, PROCESSED, PROCESSING_FAILED, CANCELLED]
@@ -1015,6 +1302,169 @@ components:
           then:
             required: [failure]
             properties: { failure: { type: object } }
+
+    CaseId:
+      type: string
+      pattern: '^case_[a-f0-9]{32}$'
+    ObservationSetId:
+      type: string
+      pattern: '^obs_[a-f0-9]{32}$'
+    QuestionnaireResponseId:
+      type: string
+      pattern: '^qr_[a-f0-9]{32}$'
+    CaseDataOrigin:
+      type: string
+      enum: [SYNTHETIC, PARTICIPANT]
+      description: Only SYNTHETIC is accepted in 1.1 (422 DATA_ORIGIN_NOT_PERMITTED otherwise). The questionnaire is not validated and no environment is approved for participant data.
+    AgeBand:
+      type: string
+      enum: [AGE_UNDER_18, AGE_18_29, AGE_30_44, AGE_45_59, AGE_60_PLUS]
+      description: Coded age group, never a date of birth. AGE_UNDER_18 is rejected (422 ADULT_CONFIRMATION_REQUIRED) until an approved child pathway exists.
+    Gender:
+      type: string
+      enum: [NOT_STATED, FEMALE, MALE, OTHER]
+    CodedValue:
+      type: string
+      pattern: '^[A-Z][A-Z0-9_]{1,40}$'
+
+    CaseCreate:
+      type: object
+      required: [case_id, participant_ref, consent_event_id, language_tag, opened_at_utc, data_origin, age_band]
+      additionalProperties: false
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+        language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        opened_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        data_origin: { $ref: '#/components/schemas/CaseDataOrigin' }
+        age_band: { $ref: '#/components/schemas/AgeBand' }
+        gender:
+          $ref: '#/components/schemas/Gender'
+          description: Optional; NOT_STATED when omitted.
+
+    Case:
+      type: object
+      required: [case_id, participant_ref, consent_event_id, language_tag, data_origin, age_band, gender, status,
+                 urgent_review_flag, follow_up_requested, observations_submitted, questionnaire_submitted,
+                 opened_by_worker_ref, opened_at_utc, completed_at_utc, created_at_utc]
+      additionalProperties: false
+      properties:
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+        language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        data_origin: { $ref: '#/components/schemas/CaseDataOrigin' }
+        age_band: { $ref: '#/components/schemas/AgeBand' }
+        gender: { $ref: '#/components/schemas/Gender' }
+        status:
+          type: string
+          enum: [OPEN, COMPLETED]
+        urgent_review_flag:
+          type: boolean
+          description: Set when the safety question was answered SOMETIMES or OFTEN. It asks for prompt human follow-up under the approved safety protocol (not yet defined, consent-and-data-lifecycle.md §13). It is not a risk score or diagnosis.
+        follow_up_requested:
+          type: [boolean, 'null']
+          description: The worker's follow-up decision; null until the case is completed.
+        observations_submitted: { type: boolean }
+        questionnaire_submitted: { type: boolean }
+        opened_by_worker_ref:
+          type: string
+          pattern: '^wkr_[a-f0-9]{32}$'
+        opened_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        completed_at_utc:
+          type: [string, 'null']
+          format: date-time
+        created_at_utc: { $ref: '#/components/schemas/Timestamp' }
+
+    CaseList:
+      type: object
+      required: [cases]
+      additionalProperties: false
+      properties:
+        cases:
+          type: array
+          items: { $ref: '#/components/schemas/Case' }
+
+    ObservationSetCreate:
+      type: object
+      required: [observation_set_id, catalogue, observed_at_utc, observations]
+      additionalProperties: false
+      description: |
+        Coded observations from catalogue `asha-observations` 0.1.0 (the server rejects any other
+        code or value with 400):
+        - HEALTH_CONDITION (repeatable): HYPERTENSION, DIABETES, HEART_DISEASE, BREATHING_PROBLEM,
+          OTHER_LONG_TERM_ILLNESS; or exactly one of NONE_REPORTED, DECLINED
+        - TOBACCO_USE: NOT_REPORTED, REPORTED, DECLINED
+        - ALCOHOL_USE: NOT_REPORTED, REPORTED, DECLINED
+        - SLEEP_QUALITY: GOOD, SOME_DIFFICULTY, VERY_POOR, DECLINED
+      properties:
+        observation_set_id: { $ref: '#/components/schemas/ObservationSetId' }
+        catalogue:
+          type: object
+          required: [catalogue_id, catalogue_version]
+          additionalProperties: false
+          properties:
+            catalogue_id: { type: string, pattern: '^[a-z0-9-]{3,64}$' }
+            catalogue_version: { type: string, pattern: '^\d+\.\d+\.\d+$' }
+        observed_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        observations:
+          type: array
+          minItems: 1
+          maxItems: 12
+          uniqueItems: true
+          items:
+            type: object
+            required: [code, value_code]
+            additionalProperties: false
+            properties:
+              code:
+                type: string
+                enum: [HEALTH_CONDITION, TOBACCO_USE, ALCOHOL_USE, SLEEP_QUALITY]
+              value_code: { $ref: '#/components/schemas/CodedValue' }
+
+    QuestionnaireResponseCreate:
+      type: object
+      required: [response_id, instrument, language_tag, answered_at_utc, items]
+      additionalProperties: false
+      description: |
+        Instrument `illustrative-wellness` 0.1.0 (NOT VALIDATED; synthetic data only). Items and
+        answer codes (anything else is rejected with 400; SELF_HARM_THOUGHTS is required):
+        - ANXIETY, LOW_MOOD: NOT_AT_ALL, SEVERAL_DAYS, MORE_THAN_HALF_THE_DAYS, NEARLY_EVERY_DAY, DECLINED
+        - INTEREST: AS_USUAL, LESS_THAN_BEFORE, NOT_AT_ALL, DECLINED
+        - SELF_HARM_THOUGHTS: NO, SOMETIMES, OFTEN, DECLINED
+      properties:
+        response_id: { $ref: '#/components/schemas/QuestionnaireResponseId' }
+        instrument:
+          type: object
+          required: [instrument_id, instrument_version]
+          additionalProperties: false
+          properties:
+            instrument_id: { type: string, pattern: '^[a-z0-9-]{3,64}$' }
+            instrument_version: { type: string, pattern: '^\d+\.\d+\.\d+$' }
+        language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        answered_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: object
+            required: [item_id, answer_code]
+            additionalProperties: false
+            properties:
+              item_id: { $ref: '#/components/schemas/CodedValue' }
+              answer_code: { $ref: '#/components/schemas/CodedValue' }
+
+    CaseCompletion:
+      type: object
+      required: [completed_at_utc, follow_up_requested]
+      additionalProperties: false
+      properties:
+        completed_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        follow_up_requested:
+          type: boolean
+          description: The worker flags the case for follow-up by a trained health professional.
 
     Problem:
       type: object
@@ -1217,6 +1667,75 @@ components:
         failure: { code: AUDIO_QUALITY_FAILED, retryable: false }
         created_at_utc: '2026-10-17T11:42:00Z'
         updated_at_utc: '2026-10-17T11:42:05Z'
+    CaseCreateExample:
+      summary: Synthetic Telugu-language visit
+      value:
+        case_id: case_00000000000000000000000000000001
+        participant_ref: ppt_00000000000000000000000000000001
+        consent_event_id: ce_00000000000000000000000000000002
+        language_tag: te-IN
+        opened_at_utc: '2026-10-18T09:10:00Z'
+        data_origin: SYNTHETIC
+        age_band: AGE_30_44
+        gender: NOT_STATED
+    CaseOpenExample:
+      value:
+        case_id: case_00000000000000000000000000000001
+        participant_ref: ppt_00000000000000000000000000000001
+        consent_event_id: ce_00000000000000000000000000000002
+        language_tag: te-IN
+        data_origin: SYNTHETIC
+        age_band: AGE_30_44
+        gender: NOT_STATED
+        status: OPEN
+        urgent_review_flag: false
+        follow_up_requested: null
+        observations_submitted: false
+        questionnaire_submitted: false
+        opened_by_worker_ref: wkr_00000000000000000000000000000001
+        opened_at_utc: '2026-10-18T09:10:00Z'
+        completed_at_utc: null
+        created_at_utc: '2026-10-18T09:10:02Z'
+    CaseCompletedExample:
+      value:
+        case_id: case_00000000000000000000000000000001
+        participant_ref: ppt_00000000000000000000000000000001
+        consent_event_id: ce_00000000000000000000000000000002
+        language_tag: te-IN
+        data_origin: SYNTHETIC
+        age_band: AGE_30_44
+        gender: NOT_STATED
+        status: COMPLETED
+        urgent_review_flag: true
+        follow_up_requested: true
+        observations_submitted: true
+        questionnaire_submitted: true
+        opened_by_worker_ref: wkr_00000000000000000000000000000001
+        opened_at_utc: '2026-10-18T09:10:00Z'
+        completed_at_utc: '2026-10-18T09:24:00Z'
+        created_at_utc: '2026-10-18T09:10:02Z'
+    ObservationSetCreateExample:
+      value:
+        observation_set_id: obs_00000000000000000000000000000001
+        catalogue: { catalogue_id: asha-observations, catalogue_version: 0.1.0 }
+        observed_at_utc: '2026-10-18T09:14:00Z'
+        observations:
+          - { code: HEALTH_CONDITION, value_code: HYPERTENSION }
+          - { code: HEALTH_CONDITION, value_code: DIABETES }
+          - { code: TOBACCO_USE, value_code: NOT_REPORTED }
+          - { code: ALCOHOL_USE, value_code: DECLINED }
+          - { code: SLEEP_QUALITY, value_code: SOME_DIFFICULTY }
+    QuestionnaireResponseCreateExample:
+      value:
+        response_id: qr_00000000000000000000000000000001
+        instrument: { instrument_id: illustrative-wellness, instrument_version: 0.1.0 }
+        language_tag: te-IN
+        answered_at_utc: '2026-10-18T09:20:00Z'
+        items:
+          - { item_id: ANXIETY, answer_code: SEVERAL_DAYS }
+          - { item_id: LOW_MOOD, answer_code: NOT_AT_ALL }
+          - { item_id: INTEREST, answer_code: AS_USUAL }
+          - { item_id: SELF_HARM_THOUGHTS, answer_code: SOMETIMES }
     ProblemValidationExample:
       value:
         type: https://mental-wellness-platform/problems/validation-failed

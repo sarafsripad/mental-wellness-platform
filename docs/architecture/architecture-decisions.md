@@ -3,7 +3,7 @@
 **Date:** 2026-10-17
 **Context document:** [solution-architecture.md](solution-architecture.md)
 
-This log holds ADR-003 to ADR-012. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
+This log holds ADR-003 to ADR-013. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
 
 | ADR | Title | Status |
 |---|---|---|
@@ -19,6 +19,7 @@ This log holds ADR-003 to ADR-012. ADR-001 and ADR-002 are separate files, and f
 | [010](#adr-010-separation-of-participant-identity-from-research-data) | Separation of participant identity from research data | PROPOSED |
 | [011](#adr-011-authentication-authorisation-and-consent-enforcement) | Authentication, authorisation and consent enforcement | ACCEPTED for implementation with synthetic data (responsible engineer, 2026-10-18); privacy/legal review pending |
 | [012](#adr-012-experimental-model-deployment-and-release-approval) | Experimental model deployment and release approval | PROPOSED |
+| [013](#adr-013-asha-assessment-cases-and-write-only-identity-intake) | ASHA assessment cases and write-only identity intake | ACCEPTED for synthetic data (repository owner, 2026-10-18); privacy lead review pending |
 
 Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means a decision the repository owner explicitly made in this session. No ADR here is approved for clinical use.
 
@@ -313,3 +314,33 @@ Mapping from the old purposes: `CLINICAL_SUPPORT` → `SCREENING_PARTICIPATION` 
 - The named clinical advisor and their sign-off process.
 - The regulatory pathway (for example, whether software as a medical device rules apply).
 - Ethics approval for prospective validation.
+
+---
+
+## ADR-013: ASHA assessment cases and write-only identity intake
+
+**Context.** The ASHA Care prototype (a browser-only, multilingual field-worker flow) has to save its inputs through the API. It collects a name and village, coded registration answers, a yes/no consent, health and lifestyle answers, an illustrative wellness questionnaire, a self-harm safety question and a follow-up decision. On 2026-10-18 the repository owner decided to build the identity module, accept all 12 prototype languages, treat the questions as synthetic-test only, and deliver a web app first.
+
+**Options for the identifiers.**
+1. Send identity inside `POST /v1/cases`, as the provisional contract sketched. The cases module would handle names and write to two databases in one request.
+2. A separate write-only operation owned by the identity module, `PUT /v1/participants/{ref}/identity`, in its own contract file.
+
+**Decision.** Option 2.
+- **`cases` module** (app_db schema `cases`): case, observation set, questionnaire response and completion. Coded values only, with no names, places or free text. Each write checks `ConsentGate` (SCREENING_PARTICIPATION on the case's own consent event) and the assignment.
+- **`identity` module**: its own connection pool, credentials and Flyway history on `identity_db`, which is not a Spring `DataSource` bean, so nothing else can inject it. Values are AES-256-GCM encrypted with the participant reference as associated data. There is no read operation. `identity-api.v1.yaml` is write-only, so `wellness-api.v1.yaml` keeps its "no direct identifiers" guarantee.
+- **Order:** consent event, then case, then identity. Identity is stored only once consent is on record, and a declined consent sends nothing.
+- **Clinical safety:** answers are stored as entered and never scored. A self-harm answer of SOMETIMES or OFTEN sets `urgent_review_flag`, which asks for human follow-up and is not a risk score. The instrument is `illustrative-wellness` 0.1.0, NOT VALIDATED, so case and identity writes accept `SYNTHETIC` only.
+- **Languages:** consent and cases accept 12 tags. Voice sessions keep `en-IN` and `kn-IN` until the feature-record schema and research review cover more.
+
+**Rationale.** The cases module never handles a name, the architecture rule "only identity touches identity" stays intact, and moving identity to its own service later (ADR-010 option 3) only means moving one operation.
+
+**Consequences.**
+- *Positive:* PII has one entry point that can be audited. The identity write is idempotent by nature (PUT, upsert keyed by `participant_ref`), so there is no cross-database transaction.
+- *Negative:* the client makes three calls instead of one. An identity record can briefly exist without a case if the client stops between calls, but it is still covered by a consent event.
+
+**Unresolved.**
+- The data-minimisation review of the identity fields (privacy lead).
+- Whether withdrawing SCREENING_PARTICIPATION should delete the identity record (privacy lead; not automatic today).
+- `listMyCases` filters by the worker who opened the case, while reads and writes follow the current assignment. The two agree only while assignment never changes; switch the list to assignment before ADMIN reassignment is built.
+- A validated instrument, approved translations and the urgent-risk protocol (clinical lead, consent-and-data-lifecycle.md §13–14). Each blocks any real participant.
+

@@ -24,12 +24,6 @@ servers:
 security:
   - oidc: []
 tags:
-  - name: cases
-    description: 'PROVISIONAL. Needs: programme team (enrolment fields), privacy lead (identity data minimisation).'
-  - name: questionnaires
-    description: 'PROVISIONAL. Needs: clinical lead (instrument choice, licensing, validated Kannada translation, scoring rules).'
-  - name: observations
-    description: 'PROVISIONAL. Needs: clinical lead and programme team (observation catalogue).'
   - name: screening-review
     description: 'PROVISIONAL. Needs: clinical lead (review workflow, escalation thresholds, safety protocol).'
   - name: referrals
@@ -38,101 +32,8 @@ tags:
     description: 'PROVISIONAL and BLOCKED. Needs: signed data-sharing agreement, partner technical specification, legal review. No partner system is identified.'
 
 paths:
-  /v1/cases:
-    post:
-      tags: [cases]
-      operationId: createCase
-      summary: Enrol a participant and open a case
-      description: Creates a pseudonymous participant reference and a case. Direct identifiers (name, phone, village) are sent to the identity module in the same request and are stored there only. They are never returned by any other API.
-      x-status: PROVISIONAL
-      x-roles: [ASHA_WORKER]
-      x-consent-prerequisite: Identity details may be stored only after the participant agrees to be contacted for screening. That needs a consent wording decision.
-      x-audit-events: [CASE_CREATED, IDENTITY_RECORD_CREATED]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CaseCreate' }
-      responses:
-        '201':
-          description: Case created.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Case' }
-        default: { $ref: '#/components/responses/Problem' }
-  /v1/cases/{caseId}:
-    get:
-      tags: [cases]
-      operationId: getCase
-      summary: Retrieve a case (pseudonymous view)
-      description: Returns the case without direct identifiers. The identity view is a separate, audited operation that is not defined yet.
-      x-status: PROVISIONAL
-      x-roles: [ASHA_WORKER, CLINICIAN]
-      x-data-access: Assigned participants only.
-      x-audit-events: [CASE_READ]
-      parameters:
-        - $ref: '#/components/parameters/CaseId'
-      responses:
-        '200':
-          description: Case.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Case' }
-        default: { $ref: '#/components/responses/Problem' }
-
-  /v1/cases/{caseId}/questionnaire-responses:
-    post:
-      tags: [questionnaires]
-      operationId: submitQuestionnaireResponse
-      summary: Submit a completed questionnaire
-      description: The instrument and its scoring rules are not chosen yet. Any instrument used must be licensed for this use and have a validated Kannada translation.
-      x-status: PROVISIONAL
-      x-roles: [ASHA_WORKER]
-      x-consent-prerequisite: SCREENING_PARTICIPATION
-      x-audit-events: [QUESTIONNAIRE_SUBMITTED]
-      parameters:
-        - $ref: '#/components/parameters/CaseId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/QuestionnaireResponseCreate' }
-      responses:
-        '201': { description: Recorded. }
-        default: { $ref: '#/components/responses/Problem' }
-
-  /v1/cases/{caseId}/observations:
-    post:
-      tags: [observations]
-      operationId: submitObservations
-      summary: Submit structured observations
-      description: Structured, coded observations recorded by the worker. Free-text notes are excluded until a policy on sensitive free text is agreed.
-      x-status: PROVISIONAL
-      x-roles: [ASHA_WORKER]
-      x-consent-prerequisite: SCREENING_PARTICIPATION
-      x-audit-events: [OBSERVATIONS_SUBMITTED]
-      parameters:
-        - $ref: '#/components/parameters/CaseId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [observation_set_id, observations]
-              properties:
-                observation_set_id: { type: string }
-                observations:
-                  type: array
-                  items:
-                    type: object
-                    required: [code, value]
-                    properties:
-                      code: { type: string }
-                      value: { type: [string, number, boolean] }
-      responses:
-        '201': { description: Recorded. }
-        default: { $ref: '#/components/responses/Problem' }
+  # /v1/cases, /v1/cases/{caseId}, questionnaire-responses and observations moved to
+  # wellness-api.v1.yaml 1.1.0 (cases tag); identity intake moved to identity-api.v1.yaml.
 
   /v1/screening-assessments:
     get:
@@ -252,12 +153,6 @@ components:
     oidc:
       type: openIdConnect
       openIdConnectUrl: http://localhost:8081/realms/wellness-local/.well-known/openid-configuration
-  parameters:
-    CaseId:
-      name: caseId
-      in: path
-      required: true
-      schema: { type: string, pattern: '^case_[a-f0-9]{32}$' }
   responses:
     Problem:
       description: RFC 9457 problem (same shape as wellness-api.v1.yaml).
@@ -273,43 +168,6 @@ components:
               code: { type: string }
               correlation_id: { type: string, format: uuid }
   schemas:
-    CaseCreate:
-      type: object
-      required: [case_id, participant_ref, identity]
-      properties:
-        case_id: { type: string, pattern: '^case_[a-f0-9]{32}$' }
-        participant_ref: { type: string, pattern: '^ppt_[a-f0-9]{32}$' }
-        identity:
-          type: object
-          description: Routed to the identity module only. The field list needs data-minimisation review.
-          properties:
-            display_name: { type: string }
-            contact_phone: { type: string }
-            locality_code: { type: string, description: 'Coded area, not an address.' }
-    Case:
-      type: object
-      required: [case_id, participant_ref, status]
-      properties:
-        case_id: { type: string }
-        participant_ref: { type: string }
-        status: { type: string, enum: [OPEN, UNDER_REVIEW, REFERRED, CLOSED] }
-        assigned_worker_ref: { type: string }
-    QuestionnaireResponseCreate:
-      type: object
-      required: [response_id, instrument_id, instrument_version, language_tag, items]
-      properties:
-        response_id: { type: string, pattern: '^qr_[a-f0-9]{32}$' }
-        instrument_id: { type: string }
-        instrument_version: { type: string }
-        language_tag: { type: string, enum: [en-IN, kn-IN] }
-        items:
-          type: array
-          items:
-            type: object
-            required: [item_id, answer_code]
-            properties:
-              item_id: { type: string }
-              answer_code: { type: string }
     ScreeningAssessment:
       type: object
       required: [assessment_id, case_id, status]

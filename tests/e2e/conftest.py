@@ -189,6 +189,16 @@ def psql(secrets_env, sql):
     return out.stdout.strip()
 
 
+def psql_as(secrets_env, user, password_key, db, sql, check=True):
+    """Query a database as a given role through the postgres container (password authentication)."""
+    cid = subprocess.run(["docker", "compose", "ps", "-q", "postgres"], cwd=ROOT / "deploy/local",
+                         capture_output=True, text=True, check=True).stdout.strip()
+    out = subprocess.run(["docker", "exec", "-e", f"PGPASSWORD={secrets_env[password_key]}", cid, "psql", "-h",
+                          "localhost", "-U", user, "-d", db, "-tAc", sql],
+                         capture_output=True, text=True, check=check, stdin=subprocess.DEVNULL)
+    return out.stdout.strip() if check else out
+
+
 def storage_has(secrets_env, key):
     r = subprocess.run(["docker", "run", "--rm", "--network", f"{secrets_env['COMPOSE_PROJECT_NAME']}_data",
                         "-e", f"AWS_ACCESS_KEY_ID={secrets_env['STORAGE_ROOT_ACCESS_KEY']}",

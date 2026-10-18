@@ -1,6 +1,11 @@
 package org.mentalwellness.api;
 
 import java.net.URI;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -39,6 +44,35 @@ public class TestcontainersConfiguration {
 	@ServiceConnection
 	PostgreSQLContainer postgresContainer() {
 		return new PostgreSQLContainer(DockerImageName.parse("postgres:16.4"));
+	}
+
+	static final String IDENTITY_USER = "identity_user";
+	static final String IDENTITY_PASSWORD = "test-only-identity-password-0001";
+
+	/** identity_db with its own role, as deploy/local/postgres/init creates it (ADR-010). */
+	@Bean
+	DynamicPropertyRegistrar identityDatabaseProperties(PostgreSQLContainer postgresContainer) {
+		return registry -> {
+			try (Connection admin = DriverManager.getConnection(postgresContainer.getJdbcUrl(),
+					postgresContainer.getUsername(), postgresContainer.getPassword());
+					Statement sql = admin.createStatement()) {
+				ResultSet exists = sql.executeQuery("SELECT 1 FROM pg_database WHERE datname = 'identity_db'");
+				if (!exists.next()) {
+					sql.execute("CREATE ROLE " + IDENTITY_USER + " LOGIN PASSWORD '" + IDENTITY_PASSWORD + "'");
+					sql.execute("CREATE DATABASE identity_db OWNER " + IDENTITY_USER);
+					sql.execute("REVOKE ALL ON DATABASE identity_db FROM PUBLIC");
+					sql.execute("GRANT CONNECT ON DATABASE identity_db TO " + IDENTITY_USER);
+				}
+			}
+			catch (SQLException ex) {
+				throw new IllegalStateException("Could not create the test identity database", ex);
+			}
+			String url = "jdbc:postgresql://" + postgresContainer.getHost() + ":"
+					+ postgresContainer.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT) + "/identity_db";
+			registry.add("wellness.identity.url", () -> url);
+			registry.add("wellness.identity.username", () -> IDENTITY_USER);
+			registry.add("wellness.identity.password", () -> IDENTITY_PASSWORD);
+		};
 	}
 
 	@Bean

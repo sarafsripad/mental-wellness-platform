@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.mentalwellness.api.consent.ConsentScope;
+import org.mentalwellness.api.shared.web.LanguageTags;
 import tools.jackson.databind.PropertyNamingStrategies;
 import tools.jackson.databind.annotation.JsonNaming;
 
@@ -49,7 +50,7 @@ final class ConsentApi {
 	record ConsentForm(
 			@NotNull @Pattern(regexp = "^[a-z0-9-]{3,64}$") String formId,
 			@NotNull @Pattern(regexp = "^\\d+\\.\\d+\\.\\d+$") String formVersion,
-			@NotNull @Pattern(regexp = "^(en-IN|kn-IN)$") String languageTag) {
+			@NotNull @Pattern(regexp = LanguageTags.PATTERN) String languageTag) {
 	}
 
 	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)

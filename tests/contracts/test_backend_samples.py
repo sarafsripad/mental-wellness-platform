@@ -36,6 +36,15 @@ def _get(doc, ref):
     return node
 
 
+def _resolve(path, doc, ref):
+    """Follows a local ('#/...') or cross-file ('other.yaml#/...') $ref: (file path, pointer, node)."""
+    file_part, _, pointer = ref.partition("#")
+    if file_part:
+        path = (path.parent / file_part).resolve()
+        doc = yaml.safe_load(path.read_text())
+    return path, pointer, _get(doc, "#" + pointer)
+
+
 def _pointer(*parts):
     return "/" + "/".join(str(p).replace("~", "~0").replace("/", "~1") for p in parts)
 
@@ -50,7 +59,7 @@ def test_recorded_traffic_matches_contract(sample_file, registry):
     op_ptr = _pointer("paths", api_path, method)
     uri = path.as_uri()
 
-    def validate(schema_ptr, instance, what):
+    def validate(schema_ptr, instance, what, uri=uri):
         validator = Draft202012Validator({"$ref": f"{uri}#{schema_ptr}"}, registry=registry,
                                          format_checker=FormatChecker())
         errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.absolute_path))
@@ -69,9 +78,10 @@ def test_recorded_traffic_matches_contract(sample_file, registry):
     assert status in op["responses"], f"status {status} is not documented for {sample['operation_id']}"
     resp = op["responses"][status]
     resp_ptr = op_ptr + _pointer("responses", status)
+    resp_uri = uri
     if "$ref" in resp:
-        resp_ptr = resp["$ref"][1:]
-        resp = _get(doc, resp["$ref"])
+        resp_path, resp_ptr, resp = _resolve(path, doc, resp["$ref"])
+        resp_uri = resp_path.as_uri()
     if sample.get("binary_response"):
         # e.g. audio bytes: check the media type is one the contract declares, not the content.
         assert any(sample["content_type"].startswith(m) for m in resp.get("content", {})), \
@@ -81,4 +91,4 @@ def test_recorded_traffic_matches_contract(sample_file, registry):
         assert "content" not in resp, "contract expects a body"
         return
     media = next(m for m in resp["content"] if sample["content_type"].startswith(m.split(";")[0]))
-    validate(resp_ptr + _pointer("content", media, "schema"), sample["response"], "response")
+    validate(resp_ptr + _pointer("content", media, "schema"), sample["response"], "response", uri=resp_uri)

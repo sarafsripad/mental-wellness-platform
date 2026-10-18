@@ -7,6 +7,7 @@ from conftest import OPENAPI_DIR
 PUBLIC_V1 = "wellness-api.v1.yaml"
 WORKER_V1 = "processing-worker.internal.v1.yaml"
 PROVISIONAL = "wellness-api-provisional.v0.yaml"
+IDENTITY_V1 = "identity-api.v1.yaml"
 HTTP_METHODS = ("get", "put", "post", "delete", "patch")
 
 
@@ -22,16 +23,16 @@ def param_refs(op):
            {p.get("name") for p in op.get("parameters", []) if "name" in p}
 
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, PROVISIONAL])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL])
 def test_openapi_documents_are_structurally_valid(openapi_docs, name):
     validate_openapi(openapi_docs[name], base_uri=(OPENAPI_DIR / name).as_uri())
 
 
 def test_all_openapi_files_are_covered(openapi_docs):
-    assert set(openapi_docs) == {PUBLIC_V1, WORKER_V1, PROVISIONAL}
+    assert set(openapi_docs) == {PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL}
 
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, PROVISIONAL])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL])
 def test_embedded_examples_match_schemas(validate_examples, openapi_docs, registry, name):
     validate_examples.failures = []
     validate_examples.check_openapi(OPENAPI_DIR / name, openapi_docs[name], registry)
@@ -55,7 +56,7 @@ def test_example_checker_detects_bad_examples(validate_examples, openapi_docs, r
 
 # --- authentication and authorization policy -----------------------------------
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, PROVISIONAL])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL])
 def test_no_anonymous_operations(openapi_docs, name):
     doc = openapi_docs[name]
     assert doc.get("security"), "global security requirement missing"
@@ -64,21 +65,22 @@ def test_no_anonymous_operations(openapi_docs, name):
             assert op["security"] and {} not in op["security"], f"{method} {path}"
 
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, PROVISIONAL])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL])
 def test_researcher_has_no_application_access(openapi_docs, name):
     for path, method, op in operations(openapi_docs[name]):
         assert "RESEARCHER" not in op.get("x-roles", []), f"{method} {path}"
 
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1])
 def test_v1_operations_declare_roles_and_audit(openapi_docs, name):
     for path, method, op in operations(openapi_docs[name]):
         assert op.get("x-roles"), f"{method} {path}: x-roles"
         assert "x-audit-events" in op, f"{method} {path}: x-audit-events"
 
 
-def test_public_operations_declare_consent_prerequisite(openapi_docs):
-    for path, method, op in operations(openapi_docs[PUBLIC_V1]):
+@pytest.mark.parametrize("name", [PUBLIC_V1, IDENTITY_V1])
+def test_public_operations_declare_consent_prerequisite(openapi_docs, name):
+    for path, method, op in operations(openapi_docs[name]):
         assert op.get("x-consent-prerequisite"), f"{method} {path}"
 
 
@@ -94,8 +96,9 @@ def test_admin_participant_access_accepts_reason_code(openapi_docs):
             assert "AccessReason" in param_refs(op), f"{method} {path}"
 
 
-def test_public_operations_carry_correlation_id(openapi_docs):
-    for path, method, op in operations(openapi_docs[PUBLIC_V1]):
+@pytest.mark.parametrize("name", [PUBLIC_V1, IDENTITY_V1])
+def test_public_operations_carry_correlation_id(openapi_docs, name):
+    for path, method, op in operations(openapi_docs[name]):
         assert "CorrelationId" in param_refs(op), f"{method} {path}"
 
 
@@ -134,6 +137,33 @@ def test_public_api_schemas_have_no_direct_identifiers(openapi_docs):
         for node in _walk(schema):
             props = set(node.get("properties", {})) if isinstance(node.get("properties"), dict) else set()
             assert not props & forbidden, f"{name}: {props & forbidden}"
+
+
+def test_identity_api_is_write_only(openapi_docs):
+    """Direct identifiers go in and never come out (ADR-010): no GET, no success body."""
+    for path, method, op in operations(openapi_docs[IDENTITY_V1]):
+        assert method in ("put", "post"), f"{method} {path}"
+        for status, response in op["responses"].items():
+            if str(status).startswith("2"):
+                assert "content" not in response, f"{method} {path} {status} returns a body"
+
+
+def test_direct_identifiers_only_in_identity_api(openapi_docs):
+    forbidden = {"display_name", "village_name", "contact_phone"}
+    for name, doc in openapi_docs.items():
+        if name in (IDENTITY_V1, PROVISIONAL):
+            continue
+        for node in _walk(doc):
+            props = set(node.get("properties", {})) if isinstance(node.get("properties"), dict) else set()
+            assert not props & forbidden, f"{name}: {props & forbidden}"
+
+
+def test_no_score_fields_on_cases(openapi_docs):
+    schemas = openapi_docs[PUBLIC_V1]["components"]["schemas"]
+    for name in ("Case", "QuestionnaireResponseCreate", "ObservationSetCreate"):
+        for node in _walk(schemas[name]):
+            props = set(node.get("properties", {})) if isinstance(node.get("properties"), dict) else set()
+            assert not {p for p in props if "score" in p or "severity" in p or "risk" in p}, name
 
 
 @pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1])

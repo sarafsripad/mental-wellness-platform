@@ -102,10 +102,12 @@ Research exports contain only re-keyed pseudonyms (ADR-010), so the application 
 | Raw audio | `AUDIO_RECORDING` | **Processing window ≤ 30 days [ASSUMPTION — privacy]**, or the approved period with `AUDIO_RETENTION` | Lifecycle rule plus withdrawal; recorded in the audit log |
 | Feature records | `AUDIO_RECORDING` | **[OPEN]** | Withdrawal (see §4) |
 | Questionnaires, observations, reviews, referrals | `SCREENING_PARTICIPATION` | Applicable clinical record rules **[OPEN — legal]** | Per legal guidance |
+| ASHA case (age band, gender, health conditions, tobacco/alcohol use, sleep, questionnaire answers, follow-up and urgent-review flags) — **sensitive** | `SCREENING_PARTICIPATION`, synthetic data only (ADR-013) | As questionnaires **[OPEN — legal]** | Per legal guidance |
+| Identity in the ASHA flow (name or approved identifier, village), encrypted in `identity_db` | After the consent event, write-only (`identity-api.v1.yaml`) | As identity above | As identity above; on withdrawal **[OPEN — privacy]** |
 | Audit events | Always | ≥ 12 months **[ASSUMPTION, from data-governance.md]** | Automatic expiry |
 | Device-local data | Capture | Until server confirms receipt | Automatic after a confirmed sync; remote wipe **[OPEN]** |
 
-Data that is never collected: precise GPS location, device identifiers (IMEI, advertising ID), transcripts of speech (v1), photos, and free-text clinical notes (until there is a policy on sensitive free text).
+Data that is never collected: precise GPS location, device identifiers (IMEI, advertising ID), transcripts of speech (v1), photos, and free-text clinical notes (until there is a policy on sensitive free text). The ASHA web app therefore leaves out the prototype's "optional notes" field.
 
 The platform must not keep data indefinitely. Until periods are approved, engineering uses the shortest workable period ([data-governance.md](data-governance.md)).
 
@@ -202,6 +204,7 @@ Identity lookups (seeing a participant's name or phone) are a separate, audited 
 - Every screening outcome is a decision by a named clinician. The platform never produces an automated diagnosis or risk label.
 - Voice processing results shown to anyone are **audio-quality status only**.
 - **An urgent-risk protocol is a prerequisite for screening any real participant.** For example, a questionnaire response indicating self-harm risk must trigger immediate on-screen guidance for the worker and an escalation path. The clinical lead must define it, including local helpline and referral contacts that are verified for the programme area. **No real participant may be screened before it is in place.**
+- **What exists today (ADR-013, synthetic only):** in the ASHA web app, a SOMETIMES or OFTEN answer to the self-harm question immediately shows the worker a placeholder alert to seek trained human support and contact their supervisor, without waiting for sync. The server sets `urgent_review_flag` on the case and writes the audit event `URGENT_REVIEW_FLAG_RAISED`. This is a stand-in, not the protocol: it has no verified contacts, no escalation route and no clinician queue.
 - Referral pathways are programme configuration. The platform doesn't contact external services (see solution-architecture.md §8).
 
 ---
@@ -215,7 +218,8 @@ Identity lookups (seeing a participant's name or phone) are a separate, audited 
 | 3 | Institutional ethics committee approval of the screening study protocol | Ethics committee | Any real participant data |
 | 4 | Legal review of data protection obligations, data residency, retention periods | Legal counsel | Production launch |
 | 5 | Urgent-risk protocol and referral pathways | Clinical lead | Any real screening |
-| 6 | Questionnaire instruments licensed and validated in Kannada | Clinical lead | Questionnaire module |
+| 6 | Questionnaire instruments licensed and validated in each language used (the current `illustrative-wellness` 0.1.0 is NOT VALIDATED) | Clinical lead | Questionnaire module with any non-synthetic data |
+| 6a | Approved translations for the ten languages added in API 1.1 (te, hi, ta, bn, mr, ml, gu, pa, ur, or); today's are unreviewed prototype translations | Ethics committee / programme | Consent capture or screening in those languages |
 | 7 | Separate ethics approval for research reuse and model training | Ethics committee | Any research export of participant data |
 | 8 | Security assessment of the production environment | Security reviewer | Production launch |
 
