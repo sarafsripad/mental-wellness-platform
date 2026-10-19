@@ -16,7 +16,7 @@ import org.springframework.validation.annotation.Validated;
 
 /**
  * Derives stable pseudonyms with a keyed hash (HMAC-SHA-256), so a pseudonym can't be reversed or
- * recomputed without the key. Used for the {@code wkr_} worker references in API responses.
+ * recomputed without the key. Used for the {@code wkr_} worker and {@code clin_} clinician references in API responses.
  */
 @Component
 @EnableConfigurationProperties(Pseudonyms.Properties.class)
@@ -31,6 +31,11 @@ public class Pseudonyms {
 	/** {@code wkr_} + 32 hex characters for a worker's token subject. */
 	public String workerRef(String subject) {
 		return "wkr_" + hmacHex("worker:" + subject).substring(0, 32);
+	}
+
+	/** {@code clin_} + 32 hex characters for a clinician's token subject. */
+	public String clinicianRef(String subject) {
+		return "clin_" + hmacHex("clinician:" + subject).substring(0, 32);
 	}
 
 	private String hmacHex(String value) {

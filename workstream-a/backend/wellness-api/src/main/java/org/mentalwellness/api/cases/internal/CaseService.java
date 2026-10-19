@@ -227,12 +227,23 @@ class CaseService {
 		}
 	}
 
-	private CaseApi.Case view(CaseRepository.CaseRow r) {
+	/** The pseudonymous case view, shared with {@link ReviewService}. */
+	CaseApi.Case view(CaseRepository.CaseRow r) {
 		return new CaseApi.Case(r.caseId(), r.participantRef(), r.consentEventId(), r.languageTag(),
 				CaseApi.DataOrigin.valueOf(r.dataOrigin()), CaseApi.AgeBand.valueOf(r.ageBand()),
 				CaseApi.Gender.valueOf(r.gender()), r.completed() ? CaseApi.Status.COMPLETED : CaseApi.Status.OPEN,
 				r.urgentReviewFlag(), r.followUpRequested(), r.observationsSubmitted(), r.questionnaireSubmitted(),
-				this.pseudonyms.workerRef(r.openedBySubject()), r.openedAt(), r.completedAt(), r.createdAt());
+				this.pseudonyms.workerRef(r.openedBySubject()), r.openedAt(), r.completedAt(), r.createdAt(),
+				reviewState(r));
+	}
+
+	private static CaseApi.ReviewState reviewState(CaseRepository.CaseRow r) {
+		if (r.reviewDecision() != null) {
+			return new CaseApi.ReviewState(CaseApi.ReviewStatus.REVIEWED, CaseApi.ReviewDecision.valueOf(r.reviewDecision()),
+					CaseApi.FollowUpWithin.valueOf(r.reviewFollowUpWithin()), r.reviewedAt());
+		}
+		return new CaseApi.ReviewState(r.needsReview() ? CaseApi.ReviewStatus.AWAITING_REVIEW : CaseApi.ReviewStatus.NOT_REQUIRED,
+				null, null, null);
 	}
 
 	private DomainException rejected(Actor actor, String caseId, ProblemKind code) {

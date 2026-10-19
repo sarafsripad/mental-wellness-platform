@@ -97,6 +97,12 @@ def asha(secrets_env):
 
 
 @pytest.fixture(scope="session")
+def clinician(secrets_env):
+    return Http(token(grant_type="password", client_id="wellness-e2e", client_secret=secrets_env["E2E_CLIENT_SECRET"],
+                      username="clinician.test1", password=secrets_env["KEYCLOAK_TEST_USER_PASSWORD"]))
+
+
+@pytest.fixture(scope="session")
 def synth():
     spec = importlib.util.spec_from_file_location("synth", ROOT / "scripts/generate-synthetic-audio.py")
     module = importlib.util.module_from_spec(spec)

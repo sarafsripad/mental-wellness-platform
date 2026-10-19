@@ -17,8 +17,15 @@ class CaseRepository {
 			c.case_id, c.participant_ref, c.consent_event_id, c.language_tag, c.data_origin, c.age_band, c.gender,
 			c.opened_at, c.opened_by_subject, c.urgent_review_flag, c.follow_up_requested, c.completed_at, c.created_at,
 			EXISTS (SELECT 1 FROM cases.observation_set o WHERE o.case_id = c.case_id),
-			EXISTS (SELECT 1 FROM cases.questionnaire_response q WHERE q.case_id = c.case_id)
+			EXISTS (SELECT 1 FROM cases.questionnaire_response q WHERE q.case_id = c.case_id),
+			(SELECT r.decision FROM cases.case_review r WHERE r.case_id = c.case_id ORDER BY r.seq DESC LIMIT 1),
+			(SELECT r.follow_up_within FROM cases.case_review r WHERE r.case_id = c.case_id ORDER BY r.seq DESC LIMIT 1),
+			(SELECT r.reviewed_at FROM cases.case_review r WHERE r.case_id = c.case_id ORDER BY r.seq DESC LIMIT 1)
 			""";
+
+	private static final String REVIEW_SELECT = """
+			SELECT review_id, case_id, decision, follow_up_within, reviewer_subject, reviewed_at, created_at
+			FROM cases.case_review""";
 
 	private final JdbcClient jdbc;
 
@@ -29,12 +36,21 @@ class CaseRepository {
 	record CaseRow(String caseId, String participantRef, String consentEventId, String languageTag, String dataOrigin,
 			String ageBand, String gender, Instant openedAt, String openedBySubject, boolean urgentReviewFlag,
 			Boolean followUpRequested, Instant completedAt, Instant createdAt, boolean observationsSubmitted,
-			boolean questionnaireSubmitted) {
+			boolean questionnaireSubmitted, String reviewDecision, String reviewFollowUpWithin, Instant reviewedAt) {
 
 		boolean completed() {
 			return this.completedAt != null;
 		}
 
+		/** Flagged by the safety question or by the worker: a trained person must follow up. */
+		boolean needsReview() {
+			return this.urgentReviewFlag || Boolean.TRUE.equals(this.followUpRequested);
+		}
+
+	}
+
+	record ReviewRow(String reviewId, String caseId, String decision, String followUpWithin, String reviewerSubject,
+			Instant reviewedAt, Instant createdAt) {
 	}
 
 	// --- cases ---------------------------------------------------------------------
@@ -91,6 +107,70 @@ class CaseRepository {
 			.update();
 	}
 
+	/** Cases needing review: urgent first, then the oldest. Consent is filtered by the caller. */
+	List<CaseRow> reviewQueue(CaseApi.QueueFilter filter, int limit) {
+		return this.jdbc.sql("SELECT " + CASE_COLUMNS + """
+				 FROM cases.assessment_case c
+				WHERE (c.urgent_review_flag OR c.follow_up_requested)
+				  AND (:filter = 'ALL'
+				       OR (:filter = 'REVIEWED') = EXISTS (SELECT 1 FROM cases.case_review r WHERE r.case_id = c.case_id))
+				ORDER BY c.urgent_review_flag DESC, c.created_at, c.case_id
+				LIMIT :limit
+				""")
+			.param("filter", filter.name())
+			.param("limit", limit)
+			.query(CaseRepository::caseRow)
+			.list();
+	}
+
+	// --- reviews ---------------------------------------------------------------------
+
+	boolean reviewExists(String reviewId) {
+		return this.jdbc.sql("SELECT count(*) FROM cases.case_review WHERE review_id = ?").param(reviewId).query(Integer.class).single() > 0;
+	}
+
+	void insertReview(String caseId, CaseApi.ClinicianReviewCreate r, String subject) {
+		this.jdbc.sql("""
+				INSERT INTO cases.case_review (review_id, case_id, decision, follow_up_within, reviewed_at, reviewer_subject)
+				VALUES (?, ?, ?, ?, ?, ?)
+				""")
+			.params(r.reviewId(), caseId, r.decision().name(), r.followUpWithin().name(), Timestamp.from(r.reviewedAtUtc()),
+					subject)
+			.update();
+	}
+
+	Optional<ReviewRow> findReview(String reviewId) {
+		return this.jdbc.sql(REVIEW_SELECT + " WHERE review_id = ?").param(reviewId).query(CaseRepository::reviewRow).optional();
+	}
+
+	List<ReviewRow> reviews(String caseId) {
+		return this.jdbc.sql(REVIEW_SELECT + " WHERE case_id = ? ORDER BY seq").param(caseId).query(CaseRepository::reviewRow).list();
+	}
+
+	List<CaseApi.Observation> observations(String caseId) {
+		return this.jdbc.sql("""
+				SELECT o.code, o.value_code FROM cases.observation o JOIN cases.observation_set s USING (observation_set_id)
+				WHERE s.case_id = ? ORDER BY o.code, o.value_code
+				""")
+			.param(caseId)
+			.query((rs, n) -> new CaseApi.Observation(CaseApi.ObservationCode.valueOf(rs.getString(1)), rs.getString(2)))
+			.list();
+	}
+
+	Optional<CaseApi.Questionnaire> questionnaire(String caseId, boolean validated) {
+		record Head(String responseId, String instrumentId, String instrumentVersion) {
+		}
+		return this.jdbc.sql("SELECT response_id, instrument_id, instrument_version FROM cases.questionnaire_response WHERE case_id = ?")
+			.param(caseId)
+			.query(Head.class)
+			.optional()
+			.map(h -> new CaseApi.Questionnaire(h.instrumentId(), h.instrumentVersion(), validated,
+					this.jdbc.sql("SELECT item_id, answer_code FROM cases.questionnaire_answer WHERE response_id = ? ORDER BY item_id")
+						.param(h.responseId())
+						.query((rs, n) -> new CaseApi.Answer(rs.getString(1), rs.getString(2)))
+						.list()));
+	}
+
 	// --- observations and questionnaire answers ------------------------------------
 
 	boolean observationSetExists(String observationSetId) {
@@ -143,7 +223,12 @@ class CaseRepository {
 		return new CaseRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5),
 				rs.getString(6), rs.getString(7), instant(rs, 8), rs.getString(9), rs.getBoolean(10),
 				followUpNull ? null : rs.getBoolean(11), instant(rs, 12), instant(rs, 13), rs.getBoolean(14),
-				rs.getBoolean(15));
+				rs.getBoolean(15), rs.getString(16), rs.getString(17), instant(rs, 18));
+	}
+
+	private static ReviewRow reviewRow(ResultSet rs, int n) throws SQLException {
+		return new ReviewRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5),
+				instant(rs, 6), instant(rs, 7));
 	}
 
 	private static Instant instant(ResultSet rs, int column) throws SQLException {

@@ -12,6 +12,8 @@ public final class Fixtures {
 
 	public static final String USER_SCOPES = "consent:read consent:write voice:read voice:write processing:read processing:write cases:read cases:write";
 
+	public static final String CLINICIAN_SCOPES = "review:read review:write consent:read";
+
 	public static final List<String> ALL_SCOPES = List.of("SCREENING_PARTICIPATION", "AUDIO_RECORDING", "AUDIO_RETENTION",
 			"RESEARCH_FEATURE_REUSE", "MODEL_TRAINING", "QUALITY_REVIEW");
 
@@ -133,6 +135,15 @@ public final class Fixtures {
 		body.put("data_origin", "SYNTHETIC");
 		body.put("display_name", displayName);
 		body.put("village_name", village);
+		return body;
+	}
+
+	public static Map<String, Object> review(String reviewId, String decision, String within, Instant reviewedAt) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("review_id", reviewId);
+		body.put("decision", decision);
+		body.put("follow_up_within", within);
+		body.put("reviewed_at_utc", reviewedAt.toString());
 		return body;
 	}
 

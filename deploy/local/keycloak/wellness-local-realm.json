@@ -180,6 +180,26 @@
       "protocolMappers": []
     },
     {
+      "name": "review:read",
+      "description": "Read the clinician review queue (pseudonymous)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "review:write",
+      "description": "Record clinician review decisions",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
       "name": "processing:worker",
       "description": "Processing worker: claim jobs, fetch leased audio, submit results",
       "protocol": "openid-connect",
@@ -277,7 +297,9 @@
         "processing:read",
         "processing:write",
         "cases:read",
-        "cases:write"
+        "cases:write",
+        "review:read",
+        "review:write"
       ],
       "optionalClientScopes": []
     },
@@ -346,6 +368,37 @@
         "consent:write",
         "cases:read",
         "cases:write"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "wellness-review-web",
+      "name": "LOCAL ONLY: clinician review dashboard (authorization code + PKCE)",
+      "description": "Served by the API at http://localhost:8080/review/ when run by run-local.sh. Synthetic data only. Never create this client in any other environment.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/review/"
+      ],
+      "webOrigins": [
+        "http://localhost:8080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8080/review/"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "wellness-api-audience",
+        "review:read",
+        "review:write"
       ],
       "optionalClientScopes": []
     }

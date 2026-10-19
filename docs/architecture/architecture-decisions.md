@@ -3,7 +3,7 @@
 **Date:** 2026-10-17
 **Context document:** [solution-architecture.md](solution-architecture.md)
 
-This log holds ADR-003 to ADR-013. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
+This log holds ADR-003 to ADR-014. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
 
 | ADR | Title | Status |
 |---|---|---|
@@ -20,6 +20,7 @@ This log holds ADR-003 to ADR-013. ADR-001 and ADR-002 are separate files, and f
 | [011](#adr-011-authentication-authorisation-and-consent-enforcement) | Authentication, authorisation and consent enforcement | ACCEPTED for implementation with synthetic data (responsible engineer, 2026-10-18); privacy/legal review pending |
 | [012](#adr-012-experimental-model-deployment-and-release-approval) | Experimental model deployment and release approval | PROPOSED |
 | [013](#adr-013-asha-assessment-cases-and-write-only-identity-intake) | ASHA assessment cases and write-only identity intake | ACCEPTED for synthetic data (repository owner, 2026-10-18); privacy lead review pending |
+| [014](#adr-014-clinician-review-of-flagged-cases) | Clinician review of flagged cases | ACCEPTED for synthetic data (repository owner, 2026-10-19); clinical lead review pending |
 
 Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means a decision the repository owner explicitly made in this session. No ADR here is approved for clinical use.
 
@@ -343,4 +344,40 @@ Mapping from the old purposes: `CLINICAL_SUPPORT` → `SCREENING_PARTICIPATION` 
 - Whether withdrawing SCREENING_PARTICIPATION should delete the identity record (privacy lead; not automatic today).
 - `listMyCases` filters by the worker who opened the case, while reads and writes follow the current assignment. The two agree only while assignment never changes; switch the list to assignment before ADMIN reassignment is built.
 - A validated instrument, approved translations and the urgent-risk protocol (clinical lead, consent-and-data-lifecycle.md §13–14). Each blocks any real participant.
+
+---
+
+## ADR-014: Clinician review of flagged cases
+
+**Context.** ASHA visits can raise an urgent-review flag (self-harm answer) or a follow-up request. Someone trained has to look at them. The provisional contract sketched screening assessments with an instrument score, but there's no validated instrument, so there's nothing to score. On 2026-10-19 the repository owner chose:
+- an audited queue that every clinician can see
+- no identity access
+- coded decisions only
+- the decision fed back to the ASHA worker
+
+**Decision.**
+- **API (wellness-api 1.2, tag `review`):**
+  - `GET /v1/review-queue`: urgent first, then the oldest, filterable by AWAITING_REVIEW, REVIEWED or ALL
+  - `GET /v1/review-queue/{caseId}`: coded answers, marked `validated: false`, plus observations and the review history
+  - `POST /v1/review-queue/{caseId}/reviews`
+  - CLINICIAN role with `review:*` scopes only. The provisional `screening-assessments` outline is retired.
+- **Eligibility:** `urgent_review_flag` or `follow_up_requested`, with SCREENING_PARTICIPATION still in effect. Anything else returns 404.
+- **Decisions:** NO_FURTHER_ACTION, MONITOR, REFER or URGENT_REFER, each with a timeframe that must fit it, checked in the API and the database. They're stored in `cases.case_review`, which is append-only (enforced by a trigger). The latest decision appears on every case as `review`, so the ASHA app shows it in Follow-ups.
+- **Pseudonymity:** clinicians are `clin_` HMAC pseudonyms. No names, villages or free text.
+- **Dashboard:** `/review/`, off by default, with its own PKCE client `wellness-review-web`. It has the same CSP and static-only security chain as the ASHA app.
+- **Placement:** review lives in the `cases` module, because it only reads and annotates cases. There's no new module dependency.
+
+**Rationale.** Contact happens through the worker who already knows the person, so the write-only identity design (ADR-013) survives. Coded decisions are auditable and keep the free-text exclusion. An append-only history means a decision is never silently changed.
+
+**Consequences.**
+- *Positive:* flagged cases now reach a human, and the loop back to the worker is closed.
+- *Negative:* every clinician sees every flagged case in the programme, which is broader than a catchment.
+- *Negative:* there are no alerts, so an unreviewed urgent case waits until someone opens the queue.
+- *Negative:* two clinicians can review the same case at once. Both decisions are kept, and the latest wins.
+
+**Unresolved.**
+- Catchment- or team-based visibility, and claiming a case (programme).
+- Review time targets, escalation when they're missed, and real referral pathways (clinical lead).
+- Whether urgent cases stay visible after consent is withdrawn (clinical lead and privacy lead).
+- The queue's consent filter runs after the database limit, so a page can hold fewer than `limit` items. That's acceptable at today's volumes.
 

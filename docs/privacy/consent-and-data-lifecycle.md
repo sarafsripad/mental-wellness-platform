@@ -157,6 +157,12 @@ Before upload, the device decrypts the audio and streams it over TLS. Device key
 
 Identity lookups (seeing a participant's name or phone) are a separate, audited operation for workers or clinicians who need to make contact. **[OPEN — programme]** Exactly which roles may do this.
 
+**As built (API 1.2, ADR-014; synthetic data only):**
+- Clinicians see a pseudonymous review queue of flagged cases from the whole programme, because there's no catchment model yet. Each queue and case read is audited.
+- They record coded decisions (no free text) in an append-only history.
+- They never see names or villages: identity stays write-only. The ASHA worker sees the decision in their Follow-ups list and makes contact.
+- Cases whose SCREENING_PARTICIPATION is withdrawn leave the queue. **[OPEN — clinical]** Whether an urgent case should stay visible after withdrawal.
+
 ---
 
 ## 9. Audit logging
@@ -205,6 +211,7 @@ Identity lookups (seeing a participant's name or phone) are a separate, audited 
 - Voice processing results shown to anyone are **audio-quality status only**.
 - **An urgent-risk protocol is a prerequisite for screening any real participant.** For example, a questionnaire response indicating self-harm risk must trigger immediate on-screen guidance for the worker and an escalation path. The clinical lead must define it, including local helpline and referral contacts that are verified for the programme area. **No real participant may be screened before it is in place.**
 - **What exists today (ADR-013, synthetic only):** in the ASHA web app, a SOMETIMES or OFTEN answer to the self-harm question immediately shows the worker a placeholder alert to seek trained human support and contact their supervisor, without waiting for sync. The server sets `urgent_review_flag` on the case and writes the audit event `URGENT_REVIEW_FLAG_RAISED`. This is a stand-in, not the protocol: it has no verified contacts, no escalation route and no clinician queue.
+- **Clinician review (ADR-014):** flagged cases (urgent-review flag or the worker's follow-up request) go to a review queue, urgent first. A clinician records NO_FURTHER_ACTION, MONITOR, REFER or URGENT_REFER with a timeframe. The platform never suggests a decision, and the queue order isn't a risk ranking. There's no notification or escalation if nobody reviews a case: **[OPEN — clinical]** review time targets and what happens when they're missed.
 - Referral pathways are programme configuration. The platform doesn't contact external services (see solution-architecture.md §8).
 
 ---

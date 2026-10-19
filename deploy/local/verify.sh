@@ -139,6 +139,14 @@ refuse "ASHA web client refuses the password grant" \
        curl -sf -d grant_type=password -d client_id=wellness-asha-web \
        -d username=asha.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL"
 
+CLIN=$(curl -sf -d grant_type=password -d client_id=wellness-e2e -d client_secret="$E2E_CLIENT_SECRET" \
+  -d username=clinician.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL" | jwt_claims 2>/dev/null)
+check  "clinician token has role CLINICIAN"        has "$CLIN" CLINICIAN
+refuse "clinician token has no ASHA_WORKER role"  has "$CLIN" ASHA_WORKER
+refuse "review dashboard client refuses the password grant" \
+       curl -sf -d grant_type=password -d client_id=wellness-review-web \
+       -d username=clinician.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL"
+
 echo "=== Exposure"
 check  "published ports bind to 127.0.0.1 only"   localhost_only
 

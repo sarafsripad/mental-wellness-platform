@@ -41,6 +41,9 @@ export SPRING_FLYWAY_LOCATIONS="classpath:db/migration,classpath:db/local-seed"
 export WELLNESS_DEV_CONSOLE_ENABLED=true
 # Local only: serve the ASHA Care web app at http://localhost:8080/asha/
 export WELLNESS_ASHA_APP_ENABLED=true
+# Local only: serve the clinician review dashboard at http://localhost:8080/review/
+export WELLNESS_REVIEW_APP_ENABLED=true
 echo "run-local: test console at http://localhost:8080/dev-console/ (once started)"
 echo "run-local: ASHA Care app at http://localhost:8080/asha/ (once started)"
+echo "run-local: clinician review dashboard at http://localhost:8080/review/ (once started)"
 exec ./gradlew bootRun "$@"

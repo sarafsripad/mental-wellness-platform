@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.mentalwellness.api.shared.web.LanguageTags;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.databind.PropertyNamingStrategies;
 import tools.jackson.databind.annotation.JsonNaming;
 
@@ -32,6 +33,17 @@ final class CaseApi {
 	enum Status { OPEN, COMPLETED }
 
 	enum ObservationCode { HEALTH_CONDITION, TOBACCO_USE, ALCOHOL_USE, SLEEP_QUALITY }
+
+	enum ReviewDecision { NO_FURTHER_ACTION, MONITOR, REFER, URGENT_REFER }
+
+	enum FollowUpWithin { NONE, WITHIN_24_HOURS, WITHIN_7_DAYS, WITHIN_30_DAYS }
+
+	enum ReviewStatus { NOT_REQUIRED, AWAITING_REVIEW, REVIEWED }
+
+	enum QueueFilter { AWAITING_REVIEW, REVIEWED, ALL }
+
+	/** Queue ordering only; not a risk level. */
+	enum Priority { URGENT, ROUTINE }
 
 	// --- requests ------------------------------------------------------------------
 
@@ -86,13 +98,47 @@ final class CaseApi {
 	record CaseCompletion(@NotNull Instant completedAtUtc, @NotNull Boolean followUpRequested) {
 	}
 
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	record ClinicianReviewCreate(
+			@NotNull @Pattern(regexp = "^rvw_[a-f0-9]{32}$") String reviewId,
+			@NotNull ReviewDecision decision,
+			@NotNull FollowUpWithin followUpWithin,
+			@NotNull Instant reviewedAtUtc) {
+	}
+
 	// --- responses -----------------------------------------------------------------
 
 	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 	record Case(String caseId, String participantRef, String consentEventId, String languageTag, DataOrigin dataOrigin,
 			AgeBand ageBand, Gender gender, Status status, boolean urgentReviewFlag, Boolean followUpRequested,
 			boolean observationsSubmitted, boolean questionnaireSubmitted, String openedByWorkerRef,
-			Instant openedAtUtc, Instant completedAtUtc, Instant createdAtUtc) {
+			Instant openedAtUtc, Instant completedAtUtc, Instant createdAtUtc, ReviewState review) {
+	}
+
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	record ReviewState(ReviewStatus status, ReviewDecision decision, FollowUpWithin followUpWithin, Instant reviewedAtUtc) {
+	}
+
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	record ClinicianReview(String reviewId, String caseId, ReviewDecision decision, FollowUpWithin followUpWithin,
+			String reviewedByRef, Instant reviewedAtUtc, Instant recordedAtUtc) {
+	}
+
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	record QueueItem(Priority priority, @JsonProperty("case") Case reviewedCase) {
+	}
+
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	record ReviewQueue(List<QueueItem> items) {
+	}
+
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	record Questionnaire(String instrumentId, String instrumentVersion, boolean validated, List<Answer> items) {
+	}
+
+	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+	record ReviewCase(Priority priority, @JsonProperty("case") Case reviewedCase, List<Observation> observations,
+			Questionnaire questionnaire, List<ClinicianReview> reviews) {
 	}
 
 	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)

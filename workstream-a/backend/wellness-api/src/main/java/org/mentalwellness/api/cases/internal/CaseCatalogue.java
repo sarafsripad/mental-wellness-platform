@@ -102,6 +102,21 @@ final class CaseCatalogue {
 		}
 	}
 
+	/** No instrument in this release is validated; reviewers are shown this alongside the answers. */
+	static boolean validated(String instrumentId, String instrumentVersion) {
+		return false;
+	}
+
+	/** Timeframes that fit each decision (also a database check constraint). */
+	static boolean consistent(CaseApi.ReviewDecision decision, CaseApi.FollowUpWithin within) {
+		return switch (decision) {
+			case NO_FURTHER_ACTION -> within == CaseApi.FollowUpWithin.NONE;
+			case MONITOR -> within == CaseApi.FollowUpWithin.WITHIN_7_DAYS || within == CaseApi.FollowUpWithin.WITHIN_30_DAYS;
+			case REFER -> within != CaseApi.FollowUpWithin.NONE;
+			case URGENT_REFER -> within == CaseApi.FollowUpWithin.WITHIN_24_HOURS;
+		};
+	}
+
 	/** True when the answers ask for prompt human follow-up. Not a score and not a risk level. */
 	static boolean needsUrgentReview(List<CaseApi.Answer> answers) {
 		return answers.stream().anyMatch(a -> SAFETY_ITEM.equals(a.itemId()) && URGENT_ANSWERS.contains(a.answerCode()));

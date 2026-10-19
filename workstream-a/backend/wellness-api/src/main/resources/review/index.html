@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clinician Review</title>
+  <link rel="stylesheet" href="review.css">
+  <script src="review.js" defer></script>
+</head>
+<body>
+<header>
+  <div>
+    <div class="brand">ASHA Care · Clinician review</div>
+    <div class="sub">Flagged visits for human follow-up · local test build</div>
+  </div>
+  <div class="header-right">
+    <span id="who">Not logged in</span>
+    <button class="linkbtn" id="login" type="button">Log in</button>
+    <button class="linkbtn" id="logout" type="button" hidden>Log out</button>
+  </div>
+</header>
+<div class="banner" role="note">SYNTHETIC TEST DATA ONLY — the questions are illustrative and NOT validated. No diagnosis or score is produced; every decision here is yours.</div>
+<main>
+  <section class="queue" aria-label="Review queue">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab active" data-filter="AWAITING_REVIEW">Awaiting review</button>
+      <button type="button" class="tab" data-filter="REVIEWED">Reviewed</button>
+      <button type="button" class="tab" data-filter="ALL">All</button>
+      <button type="button" class="refresh" id="refresh" title="Refresh">↻</button>
+    </div>
+    <p class="small" id="queueNote">Log in as a clinician (for example clinician.test1) to see the queue.</p>
+    <ul class="items" id="items"></ul>
+  </section>
+  <section class="detail" id="detail" aria-live="polite">
+    <div class="empty">Select a case from the queue.</div>
+  </section>
+</main>
+<footer>Pseudonymous view: names and villages are never shown here. The ASHA worker who made the visit sees your decision in their Follow-ups list and contacts the person. Referral pathways and the urgent-risk protocol are not yet defined by the clinical lead.</footer>
+</body>
+</html>

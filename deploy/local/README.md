@@ -23,7 +23,7 @@ The `wellness-api` (S3) and `audio-processing-worker` (S7) services will be adde
 cd deploy/local
 ./init-env.sh     # once: writes .env with random local secrets (gitignored, mode 600)
 ./up.sh           # checks .env is complete, then docker compose up -d
-./verify.sh       # 34 checks; exits 0 when all pass
+./verify.sh       # 37 checks; exits 0 when all pass
 ```
 
 First start takes a few minutes while images download, and Keycloak takes about 30 seconds to become healthy.
@@ -60,9 +60,10 @@ Example connection: `PGPASSWORD=<APP_DB_PASSWORD> psql -h 127.0.0.1 -p 5433 -U a
 |---|---|---|
 | `wellness-mobile` | Authorization code + PKCE (S256). Password grant disabled. | `consent:*`, `voice:*`, `processing:read/write`, `cases:*` |
 | `processing-worker` | Client credentials only | `processing:worker` |
-| `wellness-e2e` | Password grant. **Exists only here**, for automated tests; never create it elsewhere. | Same as mobile |
+| `wellness-e2e` | Password grant. **Exists only here**, for automated tests; never create it elsewhere. | Same as mobile, plus `review:*` |
 | `wellness-dev-console` | Authorization code + PKCE for the browser test console at `http://localhost:8080/dev-console/`. **Exists only here.** | `consent:*`, `voice:*`, `processing:read/write` |
 | `wellness-asha-web` | Authorization code + PKCE for the ASHA Care web app at `http://localhost:8080/asha/`. **Exists only here.** | `consent:*`, `cases:*` (no voice) |
+| `wellness-review-web` | Authorization code + PKCE for the clinician review dashboard at `http://localhost:8080/review/`. **Exists only here.** | `review:*` only |
 
 **Tokens:**
 - Issuer: `http://localhost:8081/realms/wellness-local`, including when Keycloak is reached from containers.
@@ -89,7 +90,8 @@ Realm roles are `ASHA_WORKER`, `CLINICIAN`, `ADMIN` and `PROCESSING_WORKER`. The
   - discovery document and issuer
   - the worker gets only `processing:worker`, with the right role and audience
   - a synthetic ASHA user gets `ASHA_WORKER` and `cases:write`, has no worker scope, and the token has no personal data
-  - the mobile and ASHA web clients refuse the password grant
+  - a synthetic clinician gets `CLINICIAN` and not `ASHA_WORKER`
+  - the mobile, ASHA web and review dashboard clients refuse the password grant
 - **Exposure:** ports bind to `127.0.0.1` only.
 
 ## When the realm file changes

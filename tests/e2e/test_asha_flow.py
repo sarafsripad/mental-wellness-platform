@@ -3,6 +3,7 @@
 Synthetic data only. Checks where each answer ends up: coded values in app_db, the name and village
 only as ciphertext in identity_db, and nothing identifying anywhere else.
 """
+import json
 from datetime import datetime, timedelta, timezone
 
 from conftest import hexid, iso, psql, psql_as, pytestmark_skip
@@ -105,3 +106,27 @@ def test_minors_and_real_data_are_refused(asha):
     status, problem = asha.call("POST", "/v1/cases", {**base, "case_id": hexid("case"), "age_band": "AGE_18_29",
                                                        "data_origin": "PARTICIPANT"})
     assert (status, problem["code"]) == (422, "DATA_ORIGIN_NOT_PERMITTED")
+
+
+def test_clinician_reviews_a_flagged_visit_and_the_worker_sees_it(asha, clinician, secrets_env):
+    _, case, _ = visit(asha, language="kn-IN", safety="OFTEN", follow_up=False)
+
+    status, queue = clinician.call("GET", "/v1/review-queue?limit=200")
+    assert status == 200
+    item = next(i for i in queue["items"] if i["case"]["case_id"] == case)
+    assert item["priority"] == "URGENT" and item["case"]["review"]["status"] == "AWAITING_REVIEW"
+
+    status, detail = clinician.call("GET", f"/v1/review-queue/{case}")
+    assert status == 200 and detail["questionnaire"]["validated"] is False
+    assert NAME not in json.dumps(detail) and VILLAGE not in json.dumps(detail)
+
+    review_id = hexid("rvw")
+    status, recorded = clinician.call("POST", f"/v1/review-queue/{case}/reviews", {
+        "review_id": review_id, "decision": "URGENT_REFER", "follow_up_within": "WITHIN_24_HOURS",
+        "reviewed_at_utc": iso(datetime.now(timezone.utc))})
+    assert status == 201 and recorded["reviewed_by_ref"].startswith("clin_")
+
+    status, seen = asha.call("GET", f"/v1/cases/{case}")
+    assert status == 200 and seen["review"]["status"] == "REVIEWED" and seen["review"]["decision"] == "URGENT_REFER"
+    assert asha.call("GET", "/v1/review-queue")[0] == 403, "workers cannot open the clinician queue"
+    assert "CLINICIAN_REVIEW_RECORDED" in psql(secrets_env, f"SELECT action FROM audit.audit_event WHERE resource_id = '{review_id}'")

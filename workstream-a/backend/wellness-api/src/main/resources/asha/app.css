@@ -47,6 +47,7 @@ aside{display:flex;flex-direction:column;gap:12px}
 .caselist .meta{color:var(--muted);font-size:12px}
 .badge{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:2px 7px;margin-inline-start:6px;background:var(--soft);color:var(--blue)}
 .badge.urgent{background:#fff0f0;color:var(--danger)}
+.caselist .review{margin-top:6px;font-size:13px;font-weight:700;color:var(--ok)}.caselist .review.pending{color:var(--warn)}.caselist .review.urgent{color:var(--danger)}
 .untr::after{content:"EN";font-size:9px;font-weight:700;vertical-align:super;margin-inline-start:3px;color:var(--warn);background:var(--warn-bg);border-radius:4px;padding:0 3px}
 code{font-size:12px;word-break:break-all}
 footer{max-width:980px;margin:0 auto 24px;padding:0 14px;font-size:12px;color:var(--muted)}

@@ -171,6 +171,10 @@ With the stack and API running, open **http://localhost:8080/asha/** and log in 
 - The API accepts `SYNTHETIC` data only.
 - "Offline" mode keeps unsynced visits in page memory only, so reloading the page discards them.
 
+### Clinician review dashboard (local only, synthetic data)
+
+Open **http://localhost:8080/review/** and log in as `clinician.test1` (same password). You'll see a queue of visits flagged by the safety question or by the worker, urgent first. Pick one to see its coded answers and history, then record a decision: no further action, monitor, refer, or urgent referral, with a timeframe. The ASHA worker sees it in **Follow-ups**. Names and villages are never shown. There's no free text and no score ([ADR-014](docs/architecture/architecture-decisions.md#adr-014-clinician-review-of-flagged-cases)).
+
 ### End-to-end (vertical slice)
 
 With the local stack, the API and the worker running:
@@ -179,7 +183,7 @@ With the local stack, the API and the worker running:
 cd deploy/local && ./up.sh                                      # 1. infrastructure
 workstream-a/backend/wellness-api/run-local.sh                  # 2. API (own terminal)
 workstream-a/processing-worker/run-local.sh                     # 3. worker (own terminal)
-python3 -m pytest tests/e2e -q                                  # 4. 12 end-to-end tests
+python3 -m pytest tests/e2e -q                                  # 4. 13 end-to-end tests
 ```
 
 These tests drive synthetic participants through consent, upload, openSMILE processing, export and Workstream B ingest, then check the results in the database, storage and logs. Research exports are made with `workstream-a/backend/wellness-api/run-export.sh`; see [workstream-b/research-pipeline](workstream-b/research-pipeline/README.md).

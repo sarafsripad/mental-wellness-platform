@@ -24,8 +24,6 @@ servers:
 security:
   - oidc: []
 tags:
-  - name: screening-review
-    description: 'PROVISIONAL. Needs: clinical lead (review workflow, escalation thresholds, safety protocol).'
   - name: referrals
     description: 'PROVISIONAL. Needs: clinical lead and programme team (referral pathways, follow-up schedule, urgent-risk protocol).'
   - name: integration
@@ -35,48 +33,8 @@ paths:
   # /v1/cases, /v1/cases/{caseId}, questionnaire-responses and observations moved to
   # wellness-api.v1.yaml 1.1.0 (cases tag); identity intake moved to identity-api.v1.yaml.
 
-  /v1/screening-assessments:
-    get:
-      tags: [screening-review]
-      operationId: listAssessmentsForReview
-      summary: Clinician review queue
-      description: Lists cases awaiting clinician review, prioritised by the urgent-risk protocol once that is defined.
-      x-status: PROVISIONAL
-      x-roles: [CLINICIAN]
-      x-data-access: Clinician's assigned catchment only.
-      x-audit-events: [REVIEW_QUEUE_READ]
-      responses:
-        '200':
-          description: Review queue.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/ScreeningAssessment' }
-        default: { $ref: '#/components/responses/Problem' }
-  /v1/screening-assessments/{assessmentId}/reviews:
-    post:
-      tags: [screening-review]
-      operationId: submitClinicianReview
-      summary: Record a clinician's review decision
-      description: Records a human clinician's decision. This is the only place a screening outcome is recorded, and it is always attributed to a named clinician.
-      x-status: PROVISIONAL
-      x-roles: [CLINICIAN]
-      x-consent-prerequisite: SCREENING_PARTICIPATION
-      x-audit-events: [CLINICIAN_REVIEW_RECORDED]
-      parameters:
-        - name: assessmentId
-          in: path
-          required: true
-          schema: { type: string, pattern: '^asmt_[a-f0-9]{32}$' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ClinicianReviewCreate' }
-      responses:
-        '201': { description: Review recorded. }
-        default: { $ref: '#/components/responses/Problem' }
+  # /v1/screening-assessments and its reviews were replaced by the review tag of
+  # wellness-api.v1.yaml 1.2.0 (/v1/review-queue, ADR-014).
 
   /v1/referrals:
     post:
@@ -168,26 +126,6 @@ components:
               code: { type: string }
               correlation_id: { type: string, format: uuid }
   schemas:
-    ScreeningAssessment:
-      type: object
-      required: [assessment_id, case_id, status]
-      properties:
-        assessment_id: { type: string }
-        case_id: { type: string }
-        status: { type: string, enum: [AWAITING_REVIEW, REVIEWED] }
-        questionnaire_summary:
-          type: object
-          description: Instrument score computed by the instrument's published scoring rule. Shown with the instrument's own interpretation guidance. It is not a diagnosis.
-        voice_processing_summary:
-          type: object
-          description: Audio-quality status only. No acoustic features or model outputs are shown to clinicians in this version.
-    ClinicianReviewCreate:
-      type: object
-      required: [review_id, decision, reviewed_at_utc]
-      properties:
-        review_id: { type: string, pattern: '^rvw_[a-f0-9]{32}$' }
-        decision: { type: string, enum: [NO_FURTHER_ACTION, MONITOR, REFER, URGENT_REFER] }
-        reviewed_at_utc: { type: string, format: date-time }
     ReferralCreate:
       type: object
       required: [referral_id, case_id, pathway_code, urgency]

@@ -646,12 +646,25 @@ function listScreen(followUpsOnly) {
       const meta = raw("div", null, "meta");
       meta.textContent = `${c.status} · ${t(labelOf(AGE, c.age_band)).text} · ${c.language_tag} · ${new Date(c.created_at_utc).toLocaleString()}`;
       li.append(head, meta);
+      if (c.review && c.review.status !== "NOT_REQUIRED") li.append(reviewLine(c.review));
       ul.append(li);
     }
     nodes.push(ul);
   }
   nodes.push(actions(button("Back to dashboard", () => go("home"), "secondary full")));
   return nodes;
+}
+
+// The clinician's latest decision (API 1.2): the worker acts on it, because only they know the person.
+const DECISION_TEXT = { NO_FURTHER_ACTION: "No further action", MONITOR: "Monitor", REFER: "Refer",
+  URGENT_REFER: "Urgent referral" };
+const WITHIN_TEXT = { NONE: "", WITHIN_24_HOURS: "within 24 hours", WITHIN_7_DAYS: "within 7 days",
+  WITHIN_30_DAYS: "within 30 days" };
+function reviewLine(review) {
+  if (review.status === "AWAITING_REVIEW") return raw("div", "Awaiting clinician review", "review pending");
+  const text = `Clinician: ${DECISION_TEXT[review.decision]} ${WITHIN_TEXT[review.follow_up_within]}`.trim();
+  return raw("div", `${text} · ${new Date(review.reviewed_at_utc).toLocaleDateString()}`,
+    review.decision === "URGENT_REFER" ? "review urgent" : "review");
 }
 
 async function openList(page) {
