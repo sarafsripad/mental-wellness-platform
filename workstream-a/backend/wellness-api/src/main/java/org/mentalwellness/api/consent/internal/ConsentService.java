@@ -20,6 +20,7 @@ import org.mentalwellness.api.consent.ConsentGate;
 import org.mentalwellness.api.consent.ConsentScope;
 import org.mentalwellness.api.consent.ConsentSnapshot;
 import org.mentalwellness.api.consent.ParticipantAccess;
+import org.mentalwellness.api.consent.StaffConsentAuthority;
 import org.mentalwellness.api.consent.WithdrawalAction;
 import org.mentalwellness.api.consent.internal.ConsentApi.EventStatus;
 import org.mentalwellness.api.consent.internal.ConsentApi.ParticipantStatus;
@@ -30,6 +31,7 @@ import org.mentalwellness.api.shared.web.CorrelationId;
 import org.mentalwellness.api.shared.web.DomainException;
 import org.mentalwellness.api.shared.web.ProblemCode;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,14 +59,18 @@ class ConsentService implements ConsentGate, ParticipantAccess {
 
 	private final Clock clock;
 
+	/** Looked up lazily: the care-team module implements it and itself depends on consent. */
+	private final ObjectProvider<StaffConsentAuthority> staff;
+
 	ConsentService(ConsentRepository repository, IdempotencyService idempotency, AuditLog audit, Pseudonyms pseudonyms,
-			List<WithdrawalAction> actions, Clock clock) {
+			List<WithdrawalAction> actions, Clock clock, ObjectProvider<StaffConsentAuthority> staff) {
 		this.repository = repository;
 		this.idempotency = idempotency;
 		this.audit = audit;
 		this.pseudonyms = pseudonyms;
 		this.actions = actions.stream().collect(Collectors.toMap(WithdrawalAction::type, Function.identity()));
 		this.clock = clock;
+		this.staff = staff;
 	}
 
 	// --- create --------------------------------------------------------------------
@@ -95,6 +101,29 @@ class ConsentService implements ConsentGate, ParticipantAccess {
 		}
 		if (this.repository.eventExists(request.consentEventId())) {
 			throw new DomainException(ProblemCode.RESOURCE_CONFLICT);
+		}
+		boolean clinicForm = request.consentForm().formId().startsWith("clinic-");
+		if (clinicForm != (request.facilityCode() != null)) {
+			// Clinic forms are recorded by facility staff at a facility, household forms by ASHA workers
+			// (security review W5).
+			throw DomainException.invalid("/consent_form/form_id", clinicForm ? "facilityStaffOnly" : "ashaWorkersOnly");
+		}
+		if (request.facilityCode() != null) {
+			// Facility staff (ADR-016): no ASHA assignment; the facility joins the care team.
+			StaffConsentAuthority authority = this.staff.getIfAvailable();
+			boolean exists = this.repository.participantExists(request.participantRef());
+			if (!isStaff(actor) || authority == null
+					|| !authority.mayRecord(actor, request.participantRef(), request.facilityCode(), exists)) {
+				throw new AccessDeniedException("not staff of this facility on the participant's care team");
+			}
+			this.repository.registerWithoutWorker(request.participantRef());
+			this.repository.insertEvent(request, actor.subject());
+			authority.recorded(actor, request.participantRef(), request.facilityCode());
+			this.audit.record(event(actor, "CONSENT_EVENT_CREATED", AuditOutcome.SUCCESS, request.consentEventId(), null));
+			return view(request.consentEventId());
+		}
+		if (!actor.has(Actor.ASHA_WORKER)) {
+			throw DomainException.invalid("/facility_code", "requiredForFacilityStaff");
 		}
 		String assigned = this.repository.assignIfAbsent(request.participantRef(), actor.subject());
 		if (!assigned.equals(actor.subject())) {
@@ -208,6 +237,12 @@ class ConsentService implements ConsentGate, ParticipantAccess {
 
 	@Override
 	@Transactional(readOnly = true)
+	public List<String> participantsOf(String workerSubject) {
+		return this.repository.participantsOf(workerSubject);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
 	public Optional<String> assignedWorker(String participantRef) {
 		return this.repository.assignedWorker(participantRef);
 	}
@@ -229,12 +264,20 @@ class ConsentService implements ConsentGate, ParticipantAccess {
 
 	// --- helpers -------------------------------------------------------------------
 
-	/** ASHA workers see their assigned participants; ADMIN sees all (reason-coded); clinicians: none yet. */
+	/** ASHA workers see their assigned participants; ADMIN sees all (reason-coded); staff, their care team's. */
 	private boolean canRead(Actor actor, String participantRef) {
 		if (actor.has(Actor.ADMIN)) {
 			return true;
 		}
-		return actor.has(Actor.ASHA_WORKER) && isAssignedTo(participantRef, actor.subject());
+		if (actor.has(Actor.ASHA_WORKER) && isAssignedTo(participantRef, actor.subject())) {
+			return true;
+		}
+		StaffConsentAuthority authority = this.staff.getIfAvailable();
+		return isStaff(actor) && authority != null && authority.mayRead(actor, participantRef);
+	}
+
+	private static boolean isStaff(Actor actor) {
+		return actor.has(Actor.CLINICIAN) || actor.has(Actor.COUNSELLOR) || actor.has(Actor.HEALTH_STAFF);
 	}
 
 	private ConsentApi.ConsentEvent view(String consentEventId) {

@@ -87,7 +87,7 @@ class ReviewIntegrationTests {
 	@Test
 	void detailShowsCodedAnswersMarkedUnvalidatedAndNoIdentity() throws Exception {
 		Visit v = visit("SOMETIMES", true);
-		expect(204, this.mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+		expect(200, this.mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
 			.put("/v1/participants/{p}/identity", v.participant())
 			.header(HttpHeaders.AUTHORIZATION, "Bearer " + this.asha.build())
 			.contentType(MediaType.APPLICATION_JSON)

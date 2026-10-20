@@ -178,6 +178,18 @@ With the stack and API running, open **http://localhost:8080/asha/** and log in 
 
 Open **http://localhost:8080/review/** and log in as `clinician.test1` (same password). You'll see a queue of visits flagged by the safety question or by the worker, urgent first. Pick one to see its coded answers and history, then record a decision: no further action, monitor, refer, or urgent referral, with a timeframe. The ASHA worker sees it in **Follow-ups**. Names and villages are never shown. There's no free text and no score ([ADR-014](docs/architecture/architecture-decisions.md#adr-014-clinician-review-of-flagged-cases)).
 
+### Clinic app for doctors, counsellors and health staff (local only, synthetic data)
+
+Open **http://localhost:8080/clinic/** and log in as `doctor.test1`, `counsellor.test1` or `nurse.test1` (same password). They work at the synthetic "PHC Testpur" and other local facilities. You can:
+- register a walk-in with clinic consent, or find a patient by card code or by exact name and village
+- press **Show details** (audited, with a reason) to see their name, village and phone
+- open an encounter: in person, tele-consultation or counselling
+- record PHQ-9 or GAD-7 (scored by the published rule; never a diagnosis)
+- doctors only: record an ICD-10 F / ICD-11 chapter 6 diagnosis
+- set a care plan with a task for the ASHA worker, who sees it in **Follow-ups**
+
+Notes are off until a sensitive-text policy is approved. Health staff never see scores, notes or diagnoses. ASHA workers see their tasks, never clinical details ([ADR-016](docs/architecture/architecture-decisions.md#adr-016-care-teams-and-clinic-staff-access)).
+
 ### Partner programmes (simulated only)
 
 There is no real connection to Tele-MANAS, eSanjeevani, ABDM or HMIS. Those need agreements first ([onboarding checklist](docs/integration/partner-onboarding.md), [ADR-015](docs/architecture/architecture-decisions.md#adr-015-partner-programme-integration-simulated-only)). Locally:
@@ -194,7 +206,7 @@ With the local stack, the API and the worker running:
 cd deploy/local && ./up.sh                                      # 1. infrastructure
 workstream-a/backend/wellness-api/run-local.sh                  # 2. API (own terminal)
 workstream-a/processing-worker/run-local.sh                     # 3. worker (own terminal)
-python3 -m pytest tests/e2e -q                                  # 4. 13 end-to-end tests
+python3 -m pytest tests/e2e -q                                  # 4. 17 end-to-end tests
 ```
 
 These tests drive synthetic participants through consent, upload, openSMILE processing, export and Workstream B ingest, then check the results in the database, storage and logs. Research exports are made with `workstream-a/backend/wellness-api/run-export.sh`; see [workstream-b/research-pipeline](workstream-b/research-pipeline/README.md).

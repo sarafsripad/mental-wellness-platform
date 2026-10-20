@@ -12,9 +12,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param username identity_db role ({@code WELLNESS_IDENTITY_DB_USER})
  * @param password its password ({@code WELLNESS_IDENTITY_DB_PASSWORD})
  * @param key      AES-256 key, 64 hex characters ({@code WELLNESS_IDENTITY_KEY})
+ * @param indexKey HMAC key for the blind search index, 64 hex characters ({@code WELLNESS_IDENTITY_INDEX_KEY})
  */
 @ConfigurationProperties("wellness.identity")
-record IdentityProperties(String url, String username, String password, String key) {
+record IdentityProperties(String url, String username, String password, String key, String indexKey) {
 
 	IdentityProperties {
 		require(url, "url (WELLNESS_IDENTITY_DB_URL)");
@@ -24,6 +25,14 @@ record IdentityProperties(String url, String username, String password, String k
 		if (!key.matches("^[0-9a-fA-F]{64}$")) {
 			throw new IllegalArgumentException("wellness.identity.key must be 64 hex characters (256 bits)");
 		}
+		require(indexKey, "index-key (WELLNESS_IDENTITY_INDEX_KEY)");
+		if (!indexKey.matches("^[0-9a-fA-F]{64}$") || indexKey.equalsIgnoreCase(key)) {
+			throw new IllegalArgumentException("wellness.identity.index-key must be 64 hex characters and differ from the key");
+		}
+	}
+
+	byte[] indexKeyBytes() {
+		return HexFormat.of().parseHex(this.indexKey);
 	}
 
 	byte[] keyBytes() {

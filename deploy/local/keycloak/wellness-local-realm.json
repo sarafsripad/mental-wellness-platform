@@ -242,6 +242,36 @@
       "protocolMappers": []
     },
     {
+      "name": "encounters:read",
+      "description": "Read clinic encounters, timelines (role-filtered)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "encounters:write",
+      "description": "Record clinic encounters, assessments, diagnoses, care plans",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "identity:lookup",
+      "description": "Audited, reason-coded patient identity lookup and search (care-team staff)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
       "name": "processing:worker",
       "description": "Processing worker: claim jobs, fetch leased audio, submit results",
       "protocol": "openid-connect",
@@ -378,7 +408,10 @@
         "review:write",
         "careteam:read",
         "careteam:write",
-        "careteam:admin"
+        "careteam:admin",
+        "encounters:read",
+        "encounters:write",
+        "identity:lookup"
       ],
       "optionalClientScopes": []
     },
@@ -481,6 +514,41 @@
         "review:read",
         "review:write",
         "careteam:read"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "wellness-clinic-web",
+      "name": "LOCAL ONLY: clinic app for doctors, counsellors and health staff (authorization code + PKCE)",
+      "description": "Served by the API at http://localhost:8080/clinic/ when run by run-local.sh. Synthetic data only. Never create this client in any other environment.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/clinic/"
+      ],
+      "webOrigins": [
+        "http://localhost:8080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8080/clinic/"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "wellness-api-audience",
+        "consent:read",
+        "consent:write",
+        "careteam:read",
+        "encounters:read",
+        "encounters:write",
+        "identity:lookup"
       ],
       "optionalClientScopes": []
     }

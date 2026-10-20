@@ -102,6 +102,16 @@ def clinician(secrets_env):
                       username="clinician.test1", password=secrets_env["KEYCLOAK_TEST_USER_PASSWORD"]))
 
 
+def staff(secrets_env, username):
+    return Http(token(grant_type="password", client_id="wellness-e2e", client_secret=secrets_env["E2E_CLIENT_SECRET"],
+                      username=username, password=secrets_env["KEYCLOAK_TEST_USER_PASSWORD"]))
+
+
+@pytest.fixture(scope="session")
+def doctor(secrets_env):
+    return staff(secrets_env, "doctor.test1")
+
+
 @pytest.fixture(scope="session")
 def synth():
     spec = importlib.util.spec_from_file_location("synth", ROOT / "scripts/generate-synthetic-audio.py")

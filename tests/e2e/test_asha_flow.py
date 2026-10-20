@@ -31,7 +31,7 @@ def visit(asha, language="hi-IN", safety="SOMETIMES", follow_up=True):
             "case_id": case, "participant_ref": ppt, "consent_event_id": ce, "language_tag": language,
             "opened_at_utc": consented, "data_origin": "SYNTHETIC", "age_band": "AGE_45_59", "gender": "FEMALE"}, 201),
         ("PUT", f"/v1/participants/{ppt}/identity", {
-            "consent_event_id": ce, "data_origin": "SYNTHETIC", "display_name": NAME, "village_name": VILLAGE}, 204),
+            "consent_event_id": ce, "data_origin": "SYNTHETIC", "display_name": NAME, "village_name": VILLAGE}, 200),
         ("POST", f"/v1/cases/{case}/observations", {
             "observation_set_id": obs, "catalogue": {"catalogue_id": "asha-observations", "catalogue_version": "0.1.0"},
             "observed_at_utc": iso(now - timedelta(minutes=10)),

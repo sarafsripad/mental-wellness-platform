@@ -31,7 +31,7 @@ class ConsentController {
 	}
 
 	@PostMapping("/v1/consent-events")
-	@PreAuthorize("hasRole('ASHA_WORKER') and hasAuthority('SCOPE_consent:write')")
+	@PreAuthorize("hasAnyRole('ASHA_WORKER', 'CLINICIAN', 'COUNSELLOR', 'HEALTH_STAFF') and hasAuthority('SCOPE_consent:write')")
 	ResponseEntity<ConsentApi.ConsentEvent> create(@RequestHeader("Idempotency-Key") UUID key,
 			@Valid @RequestBody ConsentApi.ConsentEventCreate request) {
 		var result = this.service.create(Actor.current(), key, request);
@@ -42,7 +42,7 @@ class ConsentController {
 	}
 
 	@GetMapping("/v1/consent-events/{consentEventId}")
-	@PreAuthorize("hasAnyRole('ASHA_WORKER', 'CLINICIAN', 'ADMIN') and hasAuthority('SCOPE_consent:read')")
+	@PreAuthorize("hasAnyRole('ASHA_WORKER', 'CLINICIAN', 'COUNSELLOR', 'HEALTH_STAFF', 'ADMIN') and hasAuthority('SCOPE_consent:read')")
 	ConsentApi.ConsentEvent get(@PathVariable @Pattern(regexp = ConsentApi.CONSENT_EVENT_ID) String consentEventId,
 			@RequestHeader(value = AccessReasons.HEADER, required = false) String reason) {
 		Actor actor = Actor.current();
@@ -50,7 +50,7 @@ class ConsentController {
 	}
 
 	@PostMapping("/v1/consent-events/{consentEventId}/withdrawals")
-	@PreAuthorize("hasAnyRole('ASHA_WORKER', 'CLINICIAN', 'ADMIN') and hasAuthority('SCOPE_consent:write')")
+	@PreAuthorize("hasAnyRole('ASHA_WORKER', 'CLINICIAN', 'COUNSELLOR', 'HEALTH_STAFF', 'ADMIN') and hasAuthority('SCOPE_consent:write')")
 	ResponseEntity<ConsentApi.ConsentWithdrawal> withdraw(
 			@PathVariable @Pattern(regexp = ConsentApi.CONSENT_EVENT_ID) String consentEventId,
 			@RequestHeader("Idempotency-Key") UUID key,
@@ -64,7 +64,7 @@ class ConsentController {
 	}
 
 	@GetMapping("/v1/participants/{participantRef}/consent-status")
-	@PreAuthorize("hasAnyRole('ASHA_WORKER', 'CLINICIAN', 'ADMIN') and hasAuthority('SCOPE_consent:read')")
+	@PreAuthorize("hasAnyRole('ASHA_WORKER', 'CLINICIAN', 'COUNSELLOR', 'HEALTH_STAFF', 'ADMIN') and hasAuthority('SCOPE_consent:read')")
 	ConsentApi.ConsentStatus status(@PathVariable @Pattern(regexp = ConsentApi.PARTICIPANT_REF) String participantRef,
 			@RequestHeader(value = AccessReasons.HEADER, required = false) String reason) {
 		Actor actor = Actor.current();

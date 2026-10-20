@@ -50,6 +50,8 @@
 
 **Added 2026-10-20 (ADR-015, synthetic data only):** `EXTERNAL_REFERRAL_SHARING` depends on `SCREENING_PARTICIPATION`. It allows a *pseudonymous* referral to be shared with an enabled partner programme (the form's wording gives Tele-MANAS and eSanjeevani as examples). Tying the scope to specific named partners per form version is required before any real partner (docs/integration/partner-onboarding.md, item 3). The referral holds no name, contact details or answers. It is asked as a separate yes/no question, and withdrawing it revokes referrals, including at partners that already received them.
 
+**Added 2026-10-20 (ADR-016, synthetic data only):** `CLINICAL_CARE` (no dependency) covers care by facility staff: encounters, assessments, notes, diagnoses and care plans. It's recorded by staff on the clinic consent form, at their facility. Withdrawing it stops new encounters and hides the participant's clinic tasks from the ASHA worker. Withdrawing screening consent doesn't withdraw it.
+
 ## 3. Consent lifecycle
 
 ```mermaid
@@ -104,6 +106,10 @@ Research exports contain only re-keyed pseudonyms (ADR-010), so the application 
 | Raw audio | `AUDIO_RECORDING` | **Processing window ≤ 30 days [ASSUMPTION — privacy]**, or the approved period with `AUDIO_RETENTION` | Lifecycle rule plus withdrawal; recorded in the audit log |
 | Feature records | `AUDIO_RECORDING` | **[OPEN]** | Withdrawal (see §4) |
 | Questionnaires, observations, reviews, referrals | `SCREENING_PARTICIPATION` | Applicable clinical record rules **[OPEN — legal]** | Per legal guidance |
+| Clinic encounters: PHQ-9/GAD-7 answers and instrument scores, care plans and tasks — **sensitive** | `CLINICAL_CARE`, facility staff (ADR-016) | Clinical record rules **[OPEN — legal]** | Per legal guidance; never exported to research |
+| Clinician-entered diagnoses (ICD-10 F / ICD-11 ch. 6) — **highly sensitive** | `CLINICAL_CARE`, CLINICIAN only | Clinical record rules **[OPEN — legal]** | Append-only; never exported |
+| Clinical notes (encrypted free text) — **off** until a sensitive-text policy exists | `CLINICAL_CARE`, clinicians and counsellors | **[OPEN — privacy]** | Append-only; never exported |
+| Phone number (identity, encrypted, optional) | Clinic registration or ASHA visit | As identity | As identity; **[OPEN — privacy]** approval needed |
 | Partner referrals (pseudonymous; handoff code, coded priority, reason and timeframe) | `EXTERNAL_REFERRAL_SHARING`, clinician's explicit action | Per data-sharing agreement **[OPEN — legal]** | Revoked at the partner on withdrawal |
 | HMIS aggregate reports (counts, 1–4 shown as `<5`) | Human-triggered | Programme reporting rules **[OPEN]** | Not personal data |
 | ASHA case (age band, gender, health conditions, tobacco/alcohol use, sleep, questionnaire answers, follow-up and urgent-review flags) — **sensitive** | `SCREENING_PARTICIPATION`, synthetic data only (ADR-013) | As questionnaires **[OPEN — legal]** | Per legal guidance |
@@ -160,6 +166,17 @@ Before upload, the device decrypts the audio and streams it over TLS. Device key
 | `PROCESSING_WORKER` (service) | Claim jobs, fetch leased audio, submit results | Any other API; no database or storage credentials |
 
 Identity lookups (seeing a participant's name or phone) are a separate, audited operation for workers or clinicians who need to make contact. **[OPEN — programme]** Exactly which roles may do this.
+
+**As built (API 1.5, ADR-016; synthetic data only).** Facility staff reach a participant only through a facility on that participant's care team, in a role they hold in their token:
+
+| Data | ASHA worker (own participants) | HEALTH_STAFF | COUNSELLOR | CLINICIAN |
+|---|---|---|---|---|
+| Identity (name, village, phone) | Write only | Audited lookup with reason | Audited lookup with reason | Audited lookup with reason |
+| ASHA visit answers | ✓ | — | — (timeline summary) | via review queue (ADR-014) |
+| Encounters, care plans | Own tasks only | ✓ (in person only) | ✓ | ✓ |
+| Instrument answers and scores | — | — | ✓ | ✓ |
+| Notes (when enabled) | — | — | ✓ at the encounter's facility | ✓ at the encounter's facility |
+| Diagnoses | — | — | ✓ (read) | ✓ (read, record) |
 
 **As built (API 1.2, ADR-014; synthetic data only):**
 - Clinicians see a pseudonymous review queue of flagged cases from the whole programme, because there's no catchment model yet. Each queue and case read is audited.

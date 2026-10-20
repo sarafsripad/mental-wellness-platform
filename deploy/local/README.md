@@ -24,7 +24,7 @@ The `wellness-api` (S3) and `audio-processing-worker` (S7) services will be adde
 cd deploy/local
 ./init-env.sh     # once: writes .env with random local secrets (gitignored, mode 600)
 ./up.sh           # checks .env is complete, then docker compose up -d
-./verify.sh       # 42 checks; exits 0 when all pass
+./verify.sh       # 44 checks; exits 0 when all pass
 ```
 
 First start takes a few minutes while images download, and Keycloak takes about 30 seconds to become healthy.
@@ -49,7 +49,7 @@ All secrets are in `deploy/local/.env`, created by `init-env.sh`. Nothing secret
 | Storage, wellness-api key | `STORAGE_APP_ACCESS_KEY` | `STORAGE_APP_SECRET_KEY` |
 | Storage, admin (setup only) | `STORAGE_ROOT_ACCESS_KEY` | `STORAGE_ROOT_SECRET_KEY` |
 | Keycloak admin console (http://localhost:8081/admin) | `admin` | `KEYCLOAK_ADMIN_PASSWORD` |
-| Synthetic users `asha.test1`, `asha.test2`, `clinician.test1`, `admin.test1` | — | `KEYCLOAK_TEST_USER_PASSWORD` |
+| Synthetic users `asha.test1`, `asha.test2`, `clinician.test1`, `doctor.test1`, `counsellor.test1`, `nurse.test1`, `admin.test1` | — | `KEYCLOAK_TEST_USER_PASSWORD` |
 | Worker client (client credentials) | `processing-worker` | `PROCESSING_WORKER_CLIENT_SECRET` |
 | Partner simulator client, and the signing key for messages to it | `partner-simulator` | `PARTNER_SIMULATOR_CLIENT_SECRET`, `PARTNER_SIMULATOR_SIGNING_SECRET` (added to an older `.env` by `up.sh`) |
 | E2E test client (password grant, **local only**) | `wellness-e2e` | `E2E_CLIENT_SECRET` |
@@ -66,6 +66,7 @@ Example connection: `PGPASSWORD=<APP_DB_PASSWORD> psql -h 127.0.0.1 -p 5433 -U a
 | `wellness-dev-console` | Authorization code + PKCE for the browser test console at `http://localhost:8080/dev-console/`. **Exists only here.** | `consent:*`, `voice:*`, `processing:read/write` |
 | `wellness-asha-web` | Authorization code + PKCE for the ASHA Care web app at `http://localhost:8080/asha/`. **Exists only here.** | `consent:*`, `cases:*` (no voice) |
 | `wellness-review-web` | Authorization code + PKCE for the clinician review dashboard at `http://localhost:8080/review/`. **Exists only here.** | `review:*` only |
+| `wellness-clinic-web` | Authorization code + PKCE for the clinic app at `http://localhost:8080/clinic/`. **Exists only here.** | `consent:*`, `careteam:read`, `encounters:*`, `identity:lookup` |
 | `partner-simulator` | Client credentials, role `PARTNER_SYSTEM`. **Exists only here.** | `partner:events` |
 
 **Tokens:**

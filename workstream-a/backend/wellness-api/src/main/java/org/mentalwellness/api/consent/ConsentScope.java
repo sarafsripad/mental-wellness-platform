@@ -17,7 +17,9 @@ public enum ConsentScope {
 	MODEL_TRAINING(RESEARCH_FEATURE_REUSE),
 	QUALITY_REVIEW(AUDIO_RECORDING),
 	/** Sharing a pseudonymous referral with a named partner programme such as Tele-MANAS (ADR-015). */
-	EXTERNAL_REFERRAL_SHARING(SCREENING_PARTICIPATION);
+	EXTERNAL_REFERRAL_SHARING(SCREENING_PARTICIPATION),
+	/** Care by facility staff: clinic encounters, assessments, notes, diagnoses and care plans (ADR-016). */
+	CLINICAL_CARE(null);
 
 	/** The scopes the feature-record schema v2.0.0 knows; feature records list only these. */
 	public static final Set<ConsentScope> FEATURE_RECORD_SCOPES = EnumSet.of(SCREENING_PARTICIPATION, AUDIO_RECORDING,

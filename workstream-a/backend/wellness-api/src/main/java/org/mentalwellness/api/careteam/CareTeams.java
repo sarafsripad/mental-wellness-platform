@@ -17,6 +17,12 @@ public interface CareTeams {
 	/** True if {@code facilityCode} is an active facility where the actor holds one of {@code roles}. */
 	boolean worksAt(Actor actor, String facilityCode, Set<CareRole> roles);
 
+	/** True if the facility is on the participant's care team. */
+	boolean onCareTeam(String participantRef, String facilityCode);
+
+	/** The facility's display label, if it exists. */
+	java.util.Optional<String> facilityLabel(String facilityCode);
+
 	/**
 	 * Adds a facility to the participant's care team (idempotent). Callers check consent and
 	 * authority first.

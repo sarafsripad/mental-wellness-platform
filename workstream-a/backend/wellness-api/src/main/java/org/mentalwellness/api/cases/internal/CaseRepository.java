@@ -84,6 +84,13 @@ class CaseRepository {
 		this.jdbc.sql("SELECT case_id FROM cases.assessment_case WHERE case_id = ? FOR UPDATE").param(caseId).query(String.class).single();
 	}
 
+	List<CaseRow> forParticipant(String participantRef) {
+		return this.jdbc.sql("SELECT " + CASE_COLUMNS + " FROM cases.assessment_case c WHERE c.participant_ref = ? ORDER BY c.opened_at, c.case_id")
+			.param(participantRef)
+			.query(CaseRepository::caseRow)
+			.list();
+	}
+
 	List<CaseRow> casesOpenedBy(String subject, boolean followUpOnly, int limit) {
 		return this.jdbc.sql("SELECT " + CASE_COLUMNS + """
 				 FROM cases.assessment_case c

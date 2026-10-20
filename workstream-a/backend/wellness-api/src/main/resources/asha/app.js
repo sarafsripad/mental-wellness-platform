@@ -370,6 +370,7 @@ async function doFlush() {
       if (r.status >= 200 && r.status < 300) {
         if (op.pii) op.body = null; // the name and village leave memory as soon as they are stored
         if (r.data && r.data.case_id) entry.result = r.data;
+        if (r.data && r.data.patient_card_code) entry.card = r.data.patient_card_code;
         if (r.data && r.data.opened_by_worker_ref) auth.workerRef = r.data.opened_by_worker_ref;
         entry.next += 1;
       } else {
@@ -610,7 +611,8 @@ const screens = {
       box.append(raw("div", "✓", "mark"), el("h2", "Assessment saved"), raw("p", "Saved to the wellness API."));
       const c = entry.result || {};
       const facts = [["Case", c.case_id], ["Status", c.status], ["Urgent-review flag", c.urgent_review_flag ? "Raised" : "Not raised"],
-        ["Follow-up requested", c.follow_up_requested ? "Yes" : "No"]];
+        ["Follow-up requested", c.follow_up_requested ? "Yes" : "No"],
+        ["Patient card code (give to the person for clinic visits)", entry.card || "—"]];
       for (const [k, v] of facts) {
         const d = raw("div", null, "summaryrow");
         d.append(raw("span", k), raw("code", String(v)));
@@ -658,6 +660,13 @@ function listScreen(followUpsOnly) {
       if (c.review && ["REFER", "URGENT_REFER"].includes(c.review.decision)) li.append(referralLines(c.case_id));
       ul.append(li);
     }
+    nodes.push(ul);
+  }
+  if (followUpsOnly && listing && listing.tasks && listing.tasks.length) {
+    nodes.push(raw("h2", "Tasks from the clinic"));
+    nodes.push(raw("p", "Asked by the facility after a clinic visit. The clinic's notes and assessments are not shown here.", "small"));
+    const ul = raw("ul", null, "caselist");
+    for (const task of listing.tasks) ul.append(taskItem(task));
     nodes.push(ul);
   }
   nodes.push(actions(button("Back to dashboard", () => go("home"), "secondary full")));
@@ -722,6 +731,30 @@ function referralLines(caseId) {
   return box;
 }
 
+const TASK_TEXT = { HOME_VISIT: "Home visit", CHECK_IN_CALL: "Check-in call", ACCOMPANY_TO_FACILITY: "Accompany to the facility",
+  TREATMENT_ADHERENCE_CHECK: "Check treatment is being followed" };
+
+/** One clinic follow-up task (API 1.5) with buttons to record the outcome. */
+function taskItem(task) {
+  const li = raw("li");
+  const head = raw("div");
+  head.append(raw("strong", TASK_TEXT[task.task_type] || task.task_type), raw("span", task.facility_label, "badge"));
+  const meta = raw("div", `Due ${new Date(task.due_by_utc).toLocaleDateString()} · ${task.participant_ref}`, "meta");
+  li.append(head, meta);
+  const row = raw("div", null, "actions");
+  for (const [outcome, label] of [["DONE", "Done"], ["NOT_REACHABLE", "Could not reach"], ["DECLINED", "Person declined"]]) {
+    const b = button(label, async () => {
+      const r = await api("POST", `/v1/care-tasks/${task.task_id}/completion`, { completed_at_utc: isoNow(), outcome },
+        crypto.randomUUID());
+      ui.message = r.status === 201 || r.status === 200 ? null : `Not recorded (${r.data && r.data.code || r.status}).`;
+      await openList("followups");
+    }, "secondary");
+    row.append(b);
+  }
+  li.append(row);
+  return li;
+}
+
 async function openList(page) {
   const followUpsOnly = page === "followups";
   ui.listing = null;
@@ -731,6 +764,10 @@ async function openList(page) {
     const r = await api("GET", `/v1/cases?limit=50${followUpsOnly ? "&follow_up=true" : ""}`);
     ui.listing = r.status === 200 ? { followUpsOnly, cases: r.data.cases }
       : { followUpsOnly, cases: [], error: `Could not load visits (${r.data && r.data.code || r.status}).` };
+    if (followUpsOnly && r.status === 200) {
+      const t = await api("GET", "/v1/care-tasks?status=OPEN");
+      ui.listing.tasks = t.status === 200 ? t.data.tasks : [];
+    }
   } catch (e) {
     ui.listing = { followUpsOnly, cases: [], error: "Could not reach the server." };
   }

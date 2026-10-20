@@ -12,4 +12,7 @@ public interface ParticipantAccess {
 	/** The token subject of the participant's ASHA worker, if the participant exists. */
 	java.util.Optional<String> assignedWorker(String participantRef);
 
+	/** The participants assigned to this ASHA worker. */
+	java.util.List<String> participantsOf(String workerSubject);
+
 }

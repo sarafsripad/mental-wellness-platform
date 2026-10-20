@@ -14,6 +14,7 @@ import org.mentalwellness.api.careteam.CareTeams;
 import org.mentalwellness.api.consent.ConsentGate;
 import org.mentalwellness.api.consent.ConsentScope;
 import org.mentalwellness.api.consent.ParticipantAccess;
+import org.mentalwellness.api.consent.StaffConsentAuthority;
 import org.mentalwellness.api.shared.security.Actor;
 import org.mentalwellness.api.shared.security.Pseudonyms;
 import org.mentalwellness.api.shared.web.CorrelationId;
@@ -30,7 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
  * worker's own link is unchanged and lives in the consent module.
  */
 @Service
-class CareTeamService implements CareTeams {
+class CareTeamService implements CareTeams, StaffConsentAuthority {
 
 	private final CareTeamRepository repository;
 
@@ -68,6 +69,18 @@ class CareTeamService implements CareTeams {
 	}
 
 	@Override
+	@Transactional(readOnly = true)
+	public boolean onCareTeam(String participantRef, String facilityCode) {
+		return this.repository.careTeam(participantRef).stream().anyMatch(c -> c.facilityCode().equals(facilityCode));
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public java.util.Optional<String> facilityLabel(String facilityCode) {
+		return this.repository.findFacility(facilityCode).map(CareTeamRepository.FacilityRow::facilityLabel);
+	}
+
+	@Override
 	@Transactional
 	public void addFacility(String participantRef, String facilityCode, String reasonCode, Actor actor) {
 		this.repository.findFacility(facilityCode)
@@ -75,6 +88,32 @@ class CareTeamService implements CareTeams {
 			.orElseThrow(() -> new DomainException(ProblemCode.NOT_FOUND));
 		this.repository.addToCareTeam(participantRef, facilityCode, reasonCode, actor.subject());
 		this.audit.record(event(actor, "CARE_TEAM_FACILITY_ADDED", "participant", participantRef, null));
+	}
+
+	// --- consent recorded by facility staff (StaffConsentAuthority) -----------------------
+
+	private static final Set<CareRole> ALL_STAFF = EnumSet.allOf(CareRole.class);
+
+	@Override
+	@Transactional(readOnly = true)
+	public boolean mayRecord(Actor actor, String participantRef, String facilityCode, boolean participantExists) {
+		if (!worksAt(actor, facilityCode, ALL_STAFF)) {
+			return false;
+		}
+		// An existing participant: this very facility must already be on their care team, so staff
+		// can't add another facility they work at by recording consent there (security review W3).
+		return !participantExists || (staffAccess(actor, participantRef, ALL_STAFF) && onCareTeam(participantRef, facilityCode));
+	}
+
+	@Override
+	public void recorded(Actor actor, String participantRef, String facilityCode) {
+		addFacility(participantRef, facilityCode, "CLINIC_REGISTRATION", actor);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public boolean mayRead(Actor actor, String participantRef) {
+		return staffAccess(actor, participantRef, ALL_STAFF);
 	}
 
 	/** Roles both requested and present in the token: a membership alone is not enough. */
@@ -118,15 +157,25 @@ class CareTeamService implements CareTeams {
 		if (owner && !admin && body.reasonCode() != CareTeamApi.Reason.ASHA_REFERRAL) {
 			throw DomainException.invalid("/reason_code", "ashaReferralOnly");
 		}
-		this.consent.require(body.consentEventId(), participantRef, Set.of(ConsentScope.SCREENING_PARTICIPATION), null);
+		requireScreeningOrCare(body.consentEventId(), participantRef);
 		addFacility(participantRef, facilityCode, body.reasonCode().name(), actor);
 		return view(participantRef);
+	}
+
+	/** An ASHA visit's screening consent, or a clinic's clinical-care consent. */
+	private void requireScreeningOrCare(String consentEventId, String participantRef) {
+		try {
+			this.consent.require(consentEventId, participantRef, Set.of(ConsentScope.SCREENING_PARTICIPATION), null);
+		}
+		catch (DomainException screening) {
+			this.consent.require(consentEventId, participantRef, Set.of(ConsentScope.CLINICAL_CARE), null);
+		}
 	}
 
 	@Transactional // not read-only: reads are audited
 	public CareTeamApi.CareTeam read(Actor actor, AccessReason reason, String participantRef) {
 		boolean owner = actor.has(Actor.ASHA_WORKER) && this.participants.isAssignedTo(participantRef, actor.subject());
-		boolean staff = staffAccess(actor, participantRef, EnumSet.allOf(CareRole.class));
+		boolean staff = staffAccess(actor, participantRef, ALL_STAFF);
 		boolean admin = actor.has(Actor.ADMIN) && reason != null;
 		if (!owner && !staff && !admin) {
 			throw new DomainException(ProblemCode.NOT_FOUND);

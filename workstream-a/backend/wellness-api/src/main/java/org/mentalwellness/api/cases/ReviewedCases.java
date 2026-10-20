@@ -7,4 +7,7 @@ public interface ReviewedCases {
 
 	Optional<ReferralBasis> find(String caseId);
 
+	/** The participant's ASHA visits, oldest first, as coded summaries (for the care-team timeline). */
+	java.util.List<CaseSummary> forParticipant(String participantRef);
+
 }

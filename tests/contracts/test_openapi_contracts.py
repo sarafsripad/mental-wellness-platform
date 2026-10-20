@@ -140,13 +140,22 @@ def test_public_api_schemas_have_no_direct_identifiers(openapi_docs):
             assert not props & forbidden, f"{name}: {props & forbidden}"
 
 
-def test_identity_api_is_write_only(openapi_docs):
-    """Direct identifiers go in and never come out (ADR-010): no GET, no success body."""
-    for path, method, op in operations(openapi_docs[IDENTITY_V1]):
-        assert method in ("put", "post"), f"{method} {path}"
+def test_identity_api_returns_identifiers_only_from_the_audited_lookup(openapi_docs):
+    """Direct identifiers go in and come out only through the reason-coded, audited lookup (ADR-016)."""
+    doc = openapi_docs[IDENTITY_V1]
+    forbidden = {"display_name", "village_name", "contact_phone"}
+    for path, method, op in operations(doc):
+        assert method in ("put", "post"), f"{method} {path}: no GET of identity"
         for status, response in op["responses"].items():
-            if str(status).startswith("2"):
-                assert "content" not in response, f"{method} {path} {status} returns a body"
+            if not str(status).startswith("2") or "content" not in response:
+                continue
+            ref = response["content"]["application/json"]["schema"]["$ref"].rsplit("/", 1)[-1]
+            props = set(doc["components"]["schemas"][ref].get("properties", {}))
+            if op["operationId"] == "lookupParticipantIdentity":
+                assert op["requestBody"], "lookup needs a reason"
+                assert "IDENTITY_LOOKUP_DIRECT_CARE" in op["x-audit-events"]
+            else:
+                assert not props & forbidden, f"{op['operationId']} returns identifiers"
 
 
 def test_direct_identifiers_only_in_identity_api(openapi_docs):

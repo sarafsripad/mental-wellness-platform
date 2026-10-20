@@ -1,19 +1,23 @@
 openapi: 3.1.0
 info:
   title: Mental Wellness Platform — Identity API
-  version: 1.0.0-draft.1
-  summary: Write-only intake of direct identifiers into the identity module (ADR-010, ADR-013).
+  version: 1.1.0-draft.1
+  summary: Intake of direct identifiers into the identity module, and an audited lookup for care-team staff (ADR-010, ADR-013, ADR-016).
   description: |
     The only API that accepts direct identifiers. It is kept apart from `wellness-api.v1.yaml`
     so that document can guarantee it never carries names or places, and so this operation can
     move to a separate identity service later (ADR-010) without changing the wellness API.
 
-    **Write-only.** Identifiers are stored encrypted in `identity_db`, keyed by the pseudonymous
-    `participant_ref`. No operation in any API returns them. An audited identity lookup is future
-    work and needs privacy-lead approval.
+    **Write, then audited lookup only.** Identifiers are stored encrypted in `identity_db`, keyed by
+    the pseudonymous `participant_ref`. The **only** operation that returns them is
+    `lookupParticipantIdentity`. It's restricted to staff on the participant's care team, needs a
+    reason code, is rate-limited and audited, and only works while the consent behind the record is
+    still in effect (1.1, ADR-016). ASHA workers can't read identity back. **Before real data this
+    needs privacy-lead approval.**
 
     **Consent first.** The participant's consent event must already be recorded, with
-    SCREENING_PARTICIPATION in effect. Nothing is stored for a participant who declines.
+    SCREENING_PARTICIPATION (ASHA visits) or CLINICAL_CARE (clinic registration) in effect. Nothing
+    is stored for a participant who declines.
 
     **Data minimisation (pending review).** The fields are those of the ASHA prototype: a name or
     locally approved identifier, and a village. The privacy lead must confirm them before any real
@@ -40,12 +44,15 @@ paths:
       summary: Store or replace a participant's identifiers
       description: |
         Creates or replaces the identity record for `participant_ref`. PUT is idempotent by
-        nature: repeating the same request leaves the same record. The response has no body.
+        nature: repeating the same request leaves the same record. A phone left out keeps any phone
+        already stored. Returns the participant's patient card code (assigned once; not an
+        identifier of the person), never the identifiers themselves.
       security:
         - oidc: [cases:write]
-      x-roles: [ASHA_WORKER]
-      x-data-access: Caller must be assigned to participant_ref.
-      x-consent-prerequisite: consent_event_id must belong to participant_ref and have SCREENING_PARTICIPATION in effect. Otherwise 422 CONSENT_NOT_ACTIVE or CONSENT_PARTICIPANT_MISMATCH.
+        - oidc: [encounters:write]
+      x-roles: [ASHA_WORKER, CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-data-access: The participant's ASHA worker, or staff on the participant's care team.
+      x-consent-prerequisite: consent_event_id must belong to participant_ref and have SCREENING_PARTICIPATION or CLINICAL_CARE in effect. Otherwise 422 CONSENT_NOT_ACTIVE or CONSENT_PARTICIPANT_MISMATCH.
       x-audit-events: [IDENTITY_RECORD_STORED, IDENTITY_RECORD_REJECTED, IDENTITY_RECORD_FAILED]
       parameters:
         - $ref: 'wellness-api.v1.yaml#/components/parameters/CorrelationId'
@@ -58,14 +65,88 @@ paths:
             examples:
               synthetic: { $ref: '#/components/examples/IdentityRecordPutExample' }
       responses:
-        '204':
-          description: Stored. Nothing is returned.
+        '200':
+          description: Stored. Only the patient card code is returned.
           headers:
             X-Correlation-ID: { $ref: 'wellness-api.v1.yaml#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityStored' }
         '400': { $ref: 'wellness-api.v1.yaml#/components/responses/BadRequest' }
         '401': { $ref: 'wellness-api.v1.yaml#/components/responses/Unauthorized' }
         '403': { $ref: 'wellness-api.v1.yaml#/components/responses/Forbidden' }
         '422': { $ref: 'wellness-api.v1.yaml#/components/responses/UnprocessableConsent' }
+        '500': { $ref: 'wellness-api.v1.yaml#/components/responses/InternalError' }
+
+  /v1/participants/{participantRef}/identity/lookup:
+    post:
+      tags: [identity]
+      operationId: lookupParticipantIdentity
+      summary: Show who the person is (audited, reason-coded)
+      description: |
+        The only operation that returns identifiers. Care-team staff only. Each call is audited as
+        IDENTITY_LOOKUP_<reason>, limited per staff member (429 RATE_LIMITED), and refused if the
+        consent behind the record is no longer in effect. Responses are `no-store`.
+      security:
+        - oidc: [identity:lookup]
+      x-roles: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-data-access: Staff of a facility on the participant's care team; others get 404.
+      x-consent-prerequisite: SCREENING_PARTICIPATION or CLINICAL_CARE still in effect on the consent event behind the stored record (otherwise 422 CONSENT_NOT_ACTIVE).
+      x-audit-events: [IDENTITY_LOOKUP_DIRECT_CARE, IDENTITY_LOOKUP_TELE_CONSULTATION, IDENTITY_LOOKUP_FOLLOW_UP_CONTACT, IDENTITY_LOOKUP_DENIED, IDENTITY_LOOKUP_REJECTED, IDENTITY_LOOKUP_RATE_LIMITED]
+      parameters:
+        - $ref: 'wellness-api.v1.yaml#/components/parameters/CorrelationId'
+        - $ref: 'wellness-api.v1.yaml#/components/parameters/ParticipantRef'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LookupRequest' }
+      responses:
+        '200':
+          description: The identifiers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityDetails' }
+        '400': { $ref: 'wellness-api.v1.yaml#/components/responses/BadRequest' }
+        '401': { $ref: 'wellness-api.v1.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: 'wellness-api.v1.yaml#/components/responses/Forbidden' }
+        '404': { $ref: 'wellness-api.v1.yaml#/components/responses/NotFound' }
+        '422': { $ref: 'wellness-api.v1.yaml#/components/responses/UnprocessableConsent' }
+        '429': { $ref: 'wellness-api.v1.yaml#/components/responses/TooManyRequests' }
+        '500': { $ref: 'wellness-api.v1.yaml#/components/responses/InternalError' }
+
+  /v1/identity/search:
+    post:
+      tags: [identity]
+      operationId: searchParticipants
+      summary: Find a patient on the caller's care teams
+      description: |
+        By patient card code, or by name and village (exact match after normalisation, through a
+        blind HMAC index; plaintext is never searched). Returns participant references only, and
+        only for participants on the caller's care teams. Rate-limited and audited, without values.
+      security:
+        - oidc: [identity:lookup]
+      x-roles: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-data-access: Results are limited to the caller's care teams.
+      x-consent-prerequisite: none (returns references only)
+      x-audit-events: [IDENTITY_SEARCH_CARD, IDENTITY_SEARCH_NAME, IDENTITY_SEARCH_MATCH, IDENTITY_SEARCH_RATE_LIMITED]
+      parameters:
+        - $ref: 'wellness-api.v1.yaml#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SearchRequest' }
+      responses:
+        '200':
+          description: Matching participant references.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResult' }
+        '400': { $ref: 'wellness-api.v1.yaml#/components/responses/BadRequest' }
+        '401': { $ref: 'wellness-api.v1.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: 'wellness-api.v1.yaml#/components/responses/Forbidden' }
+        '429': { $ref: 'wellness-api.v1.yaml#/components/responses/TooManyRequests' }
         '500': { $ref: 'wellness-api.v1.yaml#/components/responses/InternalError' }
 
 components:
@@ -96,6 +177,52 @@ components:
           minLength: 1
           maxLength: 100
           description: Village, as given. Stored encrypted; never returned or logged. Not a coded locality.
+        contact_phone:
+          type: [string, 'null']
+          pattern: '^\+?[0-9]{10,13}$'
+          description: Optional, for tele-consultations and follow-up calls. Stored encrypted. Privacy-lead approval needed before real data.
+    IdentityStored:
+      type: object
+      required: [patient_card_code]
+      additionalProperties: false
+      properties:
+        patient_card_code:
+          type: string
+          pattern: '^[A-Z2-9]{8}$'
+          description: Short code the person can carry, used to find their record at a clinic. Not derived from any identifier.
+    LookupRequest:
+      type: object
+      required: [reason_code]
+      additionalProperties: false
+      properties:
+        reason_code: { type: string, enum: [DIRECT_CARE, TELE_CONSULTATION, FOLLOW_UP_CONTACT] }
+    IdentityDetails:
+      type: object
+      required: [participant_ref, display_name, village_name, contact_phone, patient_card_code]
+      additionalProperties: false
+      properties:
+        participant_ref: { $ref: 'wellness-api.v1.yaml#/components/schemas/ParticipantRef' }
+        display_name: { type: string }
+        village_name: { type: string }
+        contact_phone: { type: [string, 'null'] }
+        patient_card_code: { type: [string, 'null'], pattern: '^[A-Z2-9]{8}$' }
+    SearchRequest:
+      type: object
+      additionalProperties: false
+      description: Exactly one of patient_card_code, or display_name together with village_name.
+      properties:
+        patient_card_code: { type: string, pattern: '^[A-Z2-9]{8}$' }
+        display_name: { type: string, minLength: 1, maxLength: 100 }
+        village_name: { type: string, minLength: 1, maxLength: 100 }
+    SearchResult:
+      type: object
+      required: [participant_refs]
+      additionalProperties: false
+      properties:
+        participant_refs:
+          type: array
+          maxItems: 20
+          items: { $ref: 'wellness-api.v1.yaml#/components/schemas/ParticipantRef' }
 
   examples:
     IdentityRecordPutExample:

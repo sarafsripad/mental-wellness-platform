@@ -22,6 +22,11 @@ if ! grep -qE '^WELLNESS_IDENTITY_KEY=[0-9a-f]{64}$' "$ENV_FILE"; then
   echo "run-local: added WELLNESS_IDENTITY_KEY to $ENV_FILE"
 fi
 WELLNESS_IDENTITY_KEY="$(grep -E '^WELLNESS_IDENTITY_KEY=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
+if ! grep -qE '^WELLNESS_IDENTITY_INDEX_KEY=[0-9a-f]{64}$' "$ENV_FILE"; then
+  echo "WELLNESS_IDENTITY_INDEX_KEY=$(openssl rand -hex 32)" >> "$ENV_FILE"
+  echo "run-local: added WELLNESS_IDENTITY_INDEX_KEY to $ENV_FILE"
+fi
+export WELLNESS_IDENTITY_INDEX_KEY="$(grep -E '^WELLNESS_IDENTITY_INDEX_KEY=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
 IDENTITY_DB_PASSWORD="$(grep -E '^IDENTITY_DB_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
 [[ -n "$IDENTITY_DB_PASSWORD" ]] || { echo "run-local: IDENTITY_DB_PASSWORD missing in $ENV_FILE" >&2; exit 1; }
 
@@ -43,6 +48,8 @@ export WELLNESS_DEV_CONSOLE_ENABLED=true
 export WELLNESS_ASHA_APP_ENABLED=true
 # Local only: serve the clinician review dashboard at http://localhost:8080/review/
 export WELLNESS_REVIEW_APP_ENABLED=true
+# Local only: serve the clinic app for doctors, counsellors and health staff at http://localhost:8080/clinic/
+export WELLNESS_CLINIC_APP_ENABLED=true
 # Local only: SIMULATED partner programmes (deploy/local/partner-simulator) and the outbox dispatcher.
 PARTNER_SIM_SIGNING_SECRET="$(grep -E '^PARTNER_SIMULATOR_SIGNING_SECRET=' "$ENV_FILE" | cut -d= -f2-)"
 if [[ -n "$PARTNER_SIM_SIGNING_SECRET" ]]; then
@@ -54,4 +61,5 @@ fi
 echo "run-local: test console at http://localhost:8080/dev-console/ (once started)"
 echo "run-local: ASHA Care app at http://localhost:8080/asha/ (once started)"
 echo "run-local: clinician review dashboard at http://localhost:8080/review/ (once started)"
+echo "run-local: clinic app at http://localhost:8080/clinic/ (once started)"
 exec ./gradlew bootRun "$@"

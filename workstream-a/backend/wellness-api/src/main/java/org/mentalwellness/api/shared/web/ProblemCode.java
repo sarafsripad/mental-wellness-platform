@@ -25,6 +25,7 @@ public enum ProblemCode implements ProblemKind {
 	CHECKSUM_MISMATCH(HttpStatus.UNPROCESSABLE_CONTENT, "Checksum mismatch", "The uploaded content does not match the registered checksum or size."),
 	RECORDING_NOT_UPLOADED(HttpStatus.UNPROCESSABLE_CONTENT, "Recording not uploaded", "The recording content has not been uploaded yet."),
 	PARTNER_NOT_ENABLED(HttpStatus.UNPROCESSABLE_CONTENT, "Partner not enabled", "This partner programme is not enabled in this environment."),
+	CLINICAL_NOTES_DISABLED(HttpStatus.UNPROCESSABLE_CONTENT, "Clinical notes disabled", "Free-text clinical notes are not enabled in this environment."),
 	PAYLOAD_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "Payload too large", "The request body exceeds the allowed size."),
 	UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported media type", "The request content type is not supported."),
 	RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests", "Rate limit exceeded; retry later."),

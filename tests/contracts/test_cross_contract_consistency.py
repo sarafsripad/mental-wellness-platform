@@ -21,7 +21,7 @@ def _walk(node):
 
 # Scopes that never appear in feature records: they don't govern audio or features (ADR-015).
 # Feature records list only the scopes of feature-record v2.0.0 (ConsentScope.FEATURE_RECORD_SCOPES).
-NON_FEATURE_SCOPES = {"EXTERNAL_REFERRAL_SHARING"}
+NON_FEATURE_SCOPES = {"EXTERNAL_REFERRAL_SHARING", "CLINICAL_CARE"}
 
 
 def test_consent_scopes_identical(feature_schema, openapi_docs):

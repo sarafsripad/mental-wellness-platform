@@ -32,5 +32,18 @@ INSERT INTO consent.consent_form (form_id, form_version, language_tag, offered_s
   ('asha-wellness-consent', '0.2.0', 'gu-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
   ('asha-wellness-consent', '0.2.0', 'pa-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
   ('asha-wellness-consent', '0.2.0', 'ur-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
-  ('asha-wellness-consent', '0.2.0', 'or-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[])
+  ('asha-wellness-consent', '0.2.0', 'or-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  -- Clinic care (ADR-016): consent recorded by facility staff for encounters and care plans.
+  ('clinic-care-consent', '0.1.0', 'en-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'te-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'hi-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'ta-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'bn-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'mr-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'kn-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'ml-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'gu-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'pa-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'ur-IN', ARRAY['CLINICAL_CARE']::consent.scope[]),
+  ('clinic-care-consent', '0.1.0', 'or-IN', ARRAY['CLINICAL_CARE']::consent.scope[])
 ON CONFLICT (form_id, form_version, language_tag) DO NOTHING;

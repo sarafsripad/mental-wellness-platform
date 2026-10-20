@@ -157,4 +157,46 @@ public final class Fixtures {
 		return body;
 	}
 
+	// --- clinic (ADR-016) ------------------------------------------------------------
+
+	public static final String STAFF_SCOPES = "consent:read consent:write careteam:read encounters:read encounters:write identity:lookup review:read";
+
+	/** Consent recorded by facility staff on the clinic form: CLINICAL_CARE only. */
+	public static Map<String, Object> clinicConsent(String eventId, String participant, String facility, Instant capturedAt) {
+		Map<String, Object> body = ashaConsent(eventId, participant, "hi-IN", capturedAt);
+		body.put("consent_form", Map.of("form_id", "clinic-care-consent", "form_version", "0.1.0", "language_tag", "hi-IN"));
+		body.put("scope_decisions", List.of(Map.of("scope", "CLINICAL_CARE", "granted", true)));
+		body.put("facility_code", facility);
+		return body;
+	}
+
+	public static Map<String, Object> encounter(String id, String participant, String consentEvent, String facility, String type,
+			Instant startedAt) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("encounter_id", id);
+		body.put("participant_ref", participant);
+		body.put("consent_event_id", consentEvent);
+		body.put("facility_code", facility);
+		body.put("encounter_type", type);
+		body.put("started_at_utc", startedAt.toString());
+		body.put("data_origin", "SYNTHETIC");
+		return body;
+	}
+
+	/** PHQ-9 with the same answer for items 1-8 and {@code item9} for item 9. */
+	public static Map<String, Object> phq9(String responseId, String answer, String item9) {
+		List<Map<String, Object>> items = new ArrayList<>();
+		for (int i = 1; i <= 8; i++) {
+			items.add(Map.of("item_id", "PHQ9_" + i, "answer_code", answer));
+		}
+		items.add(Map.of("item_id", "PHQ9_9", "answer_code", item9));
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("response_id", responseId);
+		body.put("instrument", Map.of("instrument_id", "phq-9", "instrument_version", "1.0.0"));
+		body.put("language_tag", "hi-IN");
+		body.put("answered_at_utc", Instant.now().minusSeconds(10).toString());
+		body.put("items", items);
+		return body;
+	}
+
 }

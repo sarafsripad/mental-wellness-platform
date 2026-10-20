@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Import;
 @SpringBootTest(properties = { "spring.flyway.locations=classpath:db/migration,classpath:db/local-seed",
 		"wellness.pseudonyms.key=test-only-pseudonym-key-0123456789abcdef",
 		"wellness.identity.key=0000000000000000000000000000000000000000000000000000000000000001",
+		"wellness.identity.index-key=0000000000000000000000000000000000000000000000000000000000000002",
 		"wellness.export.dir=build/research-export-samples",
 		"wellness.export.key=test-only-export-key-0123456789abcdef0123" })
 // No request/response dumps on failure: they would print bearer tokens and raw audio into CI logs.

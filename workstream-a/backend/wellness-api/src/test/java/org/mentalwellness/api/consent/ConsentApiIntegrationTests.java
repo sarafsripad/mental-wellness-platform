@@ -309,8 +309,9 @@ class ConsentApiIntegrationTests {
 		}
 
 		@Test
-		void onlyAshaWorkersWithWriteScopeCanRecordConsent() throws Exception {
-			problem(create(clinician, consentRequest(Ids.of("ce"), Ids.of("ppt"), all()), UUID.randomUUID()), "FORBIDDEN", 403);
+		void staffNeedAFacilityAndOthersCannotRecordConsent() throws Exception {
+			// Facility staff record consent only at a facility (ADR-016); see ClinicIntegrationTests.
+			problem(create(clinician, consentRequest(Ids.of("ce"), Ids.of("ppt"), all()), UUID.randomUUID()), "VALIDATION_FAILED", 400);
 			problem(create(admin, consentRequest(Ids.of("ce"), Ids.of("ppt"), all()), UUID.randomUUID()), "FORBIDDEN", 403);
 			var readOnly = TestTokens.token().roles("ASHA_WORKER").scope("consent:read");
 			problem(create(readOnly, consentRequest(Ids.of("ce"), Ids.of("ppt"), all()), UUID.randomUUID()), "FORBIDDEN", 403);

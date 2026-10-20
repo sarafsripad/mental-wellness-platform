@@ -46,13 +46,34 @@ class ConsentRepository {
 	}
 
 	Optional<String> assignedWorker(String participantRef) {
-		return this.jdbc.sql("SELECT worker_subject FROM consent.participant_assignment WHERE participant_ref = ?")
+		return this.jdbc.sql("SELECT worker_subject FROM consent.participant_assignment WHERE participant_ref = ? AND worker_subject IS NOT NULL")
 			.param(participantRef)
 			.query(String.class)
 			.optional();
 	}
 
 	/** Assigns the participant if unassigned; returns the (possibly pre-existing) assigned worker. */
+	List<String> participantsOf(String workerSubject) {
+		return this.jdbc.sql("SELECT participant_ref FROM consent.participant_assignment WHERE worker_subject = ?")
+			.param(workerSubject)
+			.query(String.class)
+			.list();
+	}
+
+	/** Registers a participant seen at a facility, without an ASHA worker (ADR-016). */
+	void registerWithoutWorker(String participantRef) {
+		this.jdbc.sql("INSERT INTO consent.participant_assignment (participant_ref) VALUES (?) ON CONFLICT (participant_ref) DO NOTHING")
+			.param(participantRef)
+			.update();
+	}
+
+	boolean participantExists(String participantRef) {
+		return this.jdbc.sql("SELECT count(*) FROM consent.participant_assignment WHERE participant_ref = ?")
+			.param(participantRef)
+			.query(Integer.class)
+			.single() > 0;
+	}
+
 	String assignIfAbsent(String participantRef, String workerSubject) {
 		this.jdbc.sql("""
 				INSERT INTO consent.participant_assignment (participant_ref, worker_subject) VALUES (?, ?)
@@ -60,7 +81,9 @@ class ConsentRepository {
 				""")
 			.params(participantRef, workerSubject)
 			.update();
-		return assignedWorker(participantRef).orElseThrow();
+		// A participant registered at a facility keeps a null worker: no ASHA worker can claim them by
+		// recording consent (security review W4). Assigning one is an open programme decision.
+		return assignedWorker(participantRef).orElse("");
 	}
 
 	// --- events --------------------------------------------------------------------

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASHA Care Clinic</title>
+  <link rel="stylesheet" href="clinic.css">
+  <script src="clinic.js" defer></script>
+</head>
+<body>
+<header>
+  <div>
+    <div class="brand">ASHA Care · Clinic</div>
+    <div class="sub">Doctors, counsellors and health staff · local test build</div>
+  </div>
+  <div class="header-right">
+    <select id="facility" hidden aria-label="Facility"></select>
+    <span id="who">Not logged in</span>
+    <button class="linkbtn" id="login" type="button">Log in</button>
+    <button class="linkbtn" id="logout" type="button" hidden>Log out</button>
+  </div>
+</header>
+<div class="banner" role="note">SYNTHETIC TEST DATA ONLY — instrument translations are not validated; scores are instrument scores, never a diagnosis.</div>
+<main>
+  <section class="side" aria-label="Patients">
+    <h3>Find a patient</h3>
+    <label class="small" for="card">Patient card code</label>
+    <div class="row"><input id="card" maxlength="8" autocomplete="off" spellcheck="false" placeholder="e.g. K7QP2MXA"><button class="btn small-btn" id="byCard" type="button">Find</button></div>
+    <label class="small" for="sname">Or name and village (exact)</label>
+    <input id="sname" maxlength="100" autocomplete="off" spellcheck="false" placeholder="Name">
+    <div class="row"><input id="svillage" maxlength="100" autocomplete="off" spellcheck="false" placeholder="Village"><button class="btn small-btn" id="byName" type="button">Find</button></div>
+    <ul class="results" id="results"></ul>
+    <button class="btn secondary full" id="newPatient" type="button">Register a new patient</button>
+    <p class="small">Only patients on your facilities' care teams are found. Every search and every "show details" is audited.</p>
+  </section>
+  <section class="main" id="panel" aria-live="polite">
+    <div class="empty">Log in, choose your facility, then find or register a patient.</div>
+  </section>
+</main>
+<footer>Pseudonymous by default: names, villages and phone numbers appear only after an audited "Show details" with a reason. Notes are off until a sensitive-text policy is approved. No platform-generated diagnosis or risk score; diagnoses are entered by clinicians.</footer>
+</body>
+</html>

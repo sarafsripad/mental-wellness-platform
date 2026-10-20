@@ -34,7 +34,8 @@ class SecurityConfig {
 	/** OAuth scopes used by the contracts (wellness-api.v1.yaml and processing-worker.internal.v1.yaml). */
 	static final List<String> API_SCOPES = List.of("consent:read", "consent:write", "voice:read", "voice:write",
 			"processing:read", "processing:write", "processing:worker", "cases:read", "cases:write", "review:read",
-			"review:write", "partner:events", "careteam:read", "careteam:write", "careteam:admin");
+			"review:write", "partner:events", "careteam:read", "careteam:write", "careteam:admin", "encounters:read", "encounters:write",
+			"identity:lookup");
 
 	@Bean
 	SecurityFilterChain apiSecurity(HttpSecurity http, ProblemResponses problems, AuditLog auditLog,

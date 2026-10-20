@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Mental Wellness Platform — Wellness API
-  version: 1.4.0-draft.1
+  version: 1.5.0-draft.1
   summary: Public API — consent, voice sessions, recordings, audio-processing jobs, ASHA assessment cases, clinician review, programme support contacts and partner referrals.
   description: |
     Public API of the wellness backend (a Spring Boot modular monolith, Java 21) used by the
@@ -76,6 +76,12 @@ tags:
       Facilities, staff memberships and each participant's care team (1.4, ADR-016). The ASHA worker
       keeps their own link; facility staff (CLINICIAN, COUNSELLOR, HEALTH_STAFF) reach a participant
       only through an active membership at a facility on that participant's care team.
+  - name: encounters
+    description: |
+      Clinic visits, tele-consultations and counselling sessions by facility staff (1.5, ADR-016),
+      under CLINICAL_CARE consent. Instrument scores follow each instrument's published rule and are
+      **never a diagnosis**; diagnoses are entered by clinicians only; notes are encrypted and off by
+      default. HEALTH_STAFF never see scores, notes or diagnoses. Nothing here is exported to research.
   - name: programme
     description: Programme reference data with no participant data, such as verified support contacts (ADR-015).
   - name: referrals
@@ -102,8 +108,8 @@ paths:
         not the request body.
       security:
         - oidc: [consent:write]
-      x-roles: [ASHA_WORKER]
-      x-data-access: Caller must be assigned to participant_ref.
+      x-roles: [ASHA_WORKER, CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-data-access: ASHA worker, assigned to participant_ref (assigned by this event if new); or facility staff at facility_code (see facility_code).
       x-consent-prerequisite: none (this operation creates consent)
       x-audit-events: [CONSENT_EVENT_CREATED, CONSENT_EVENT_REJECTED]
       x-idempotency: consent_event_id plus Idempotency-Key; replay returns 200 with the stored event.
@@ -152,8 +158,8 @@ paths:
       summary: Retrieve a consent event
       security:
         - oidc: [consent:read]
-      x-roles: [ASHA_WORKER, CLINICIAN, ADMIN]
-      x-data-access: ASHA_WORKER and CLINICIAN only for assigned participants. ADMIN access is audit-logged with a reason code.
+      x-roles: [ASHA_WORKER, CLINICIAN, COUNSELLOR, HEALTH_STAFF, ADMIN]
+      x-data-access: ASHA_WORKER for assigned participants; facility staff for participants on their care team; ADMIN with a reason code.
       x-consent-prerequisite: none
       x-audit-events: [CONSENT_EVENT_READ]
       parameters:
@@ -190,8 +196,8 @@ paths:
         A withdrawal can never be rejected because of outstanding processing work.
       security:
         - oidc: [consent:write]
-      x-roles: [ASHA_WORKER, CLINICIAN, ADMIN]
-      x-data-access: ASHA_WORKER and CLINICIAN only for assigned participants. ADMIN with reason code.
+      x-roles: [ASHA_WORKER, CLINICIAN, COUNSELLOR, HEALTH_STAFF, ADMIN]
+      x-data-access: ASHA_WORKER for assigned participants; facility staff for participants on their care team; ADMIN with a reason code.
       x-consent-prerequisite: Consent event exists. Withdrawing an already-withdrawn scope is a no-op that returns 200.
       x-audit-events: [CONSENT_WITHDRAWN, CONSENT_DOWNSTREAM_ACTION_SCHEDULED]
       x-idempotency: withdrawal_id plus Idempotency-Key.
@@ -239,8 +245,8 @@ paths:
       description: Returns the scopes currently in effect, combining all consent events and withdrawals. The mobile app uses this to enable or disable capture after sync.
       security:
         - oidc: [consent:read]
-      x-roles: [ASHA_WORKER, CLINICIAN, ADMIN]
-      x-data-access: ASHA_WORKER and CLINICIAN only for assigned participants.
+      x-roles: [ASHA_WORKER, CLINICIAN, COUNSELLOR, HEALTH_STAFF, ADMIN]
+      x-data-access: ASHA_WORKER for assigned participants; facility staff for participants on their care team.
       x-consent-prerequisite: none
       x-audit-events: [CONSENT_STATUS_READ]
       parameters:
@@ -1224,6 +1230,358 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /v1/encounters:
+    post:
+      tags: [encounters]
+      operationId: createEncounter
+      summary: Open an encounter
+      description: SYNTHETIC only (DATA_ORIGIN_NOT_PERMITTED otherwise). The recorded care_role is the strongest role the caller holds at the facility.
+      security:
+        - oidc: [encounters:write]
+      x-roles: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-consent-prerequisite: CLINICAL_CARE in effect on consent_event_id (CONSENT_NOT_ACTIVE otherwise); facility_code on the participant's care team and the caller working there in a role allowed for the type (HEALTH_STAFF only IN_PERSON).
+      x-audit-events: [ENCOUNTER_CREATED, ENCOUNTER_REJECTED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EncounterCreate' }
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Encounter' }
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Encounter' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/encounters/{encounterId}:
+    get:
+      tags: [encounters]
+      operationId: getEncounter
+      summary: Read an encounter (role-filtered)
+      description: HEALTH_STAFF get no instruments, notes or diagnoses. Notes are returned only to CLINICIAN or COUNSELLOR working at the encounter's facility, only while notes are enabled. no-store.
+      security:
+        - oidc: [encounters:read]
+      x-roles: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-consent-prerequisite: none for reading; staff on the participant's care team only.
+      x-audit-events: [ENCOUNTER_READ, CLINICAL_NOTE_READ]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/EncounterId'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Encounter' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/encounters/{encounterId}/instrument-responses:
+    post:
+      tags: [encounters]
+      operationId: submitInstrumentResponse
+      summary: Record a validated instrument (PHQ-9, GAD-7)
+      description: One response per instrument per encounter. The score follows the instrument's published rule, only when every item is answered; it is an instrument score, never a diagnosis. Any PHQ-9 item 9 answer above NOT_AT_ALL raises the urgent-review flag.
+      security:
+        - oidc: [encounters:write]
+      x-roles: [CLINICIAN, COUNSELLOR]
+      x-consent-prerequisite: CLINICAL_CARE in effect on the encounter's consent event; the encounter's facility on the participant's care team, and the caller working there.
+      x-audit-events: [INSTRUMENT_RESPONSE_SUBMITTED, URGENT_REVIEW_FLAG_RAISED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/EncounterId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InstrumentResponseCreate' }
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstrumentResult' }
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstrumentResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/encounters/{encounterId}/notes:
+    post:
+      tags: [encounters]
+      operationId: addClinicalNote
+      summary: Add an encrypted clinical note
+      description: Off by default (422 CLINICAL_NOTES_DISABLED) until a sensitive-text policy is approved. Append-only, AES-GCM encrypted, never logged, never exported, never shown to ASHA workers or HEALTH_STAFF.
+      security:
+        - oidc: [encounters:write]
+      x-roles: [CLINICIAN, COUNSELLOR]
+      x-consent-prerequisite: CLINICAL_CARE in effect on the encounter's consent event; the encounter's facility on the participant's care team, and the caller working there.
+      x-audit-events: [CLINICAL_NOTE_ADDED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/EncounterId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoteCreate' }
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NoteStored' }
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NoteStored' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/encounters/{encounterId}/diagnoses:
+    post:
+      tags: [encounters]
+      operationId: recordDiagnosis
+      summary: Record a clinician-entered diagnosis
+      description: Entered by a clinician, never generated. ICD-10 chapter F or ICD-11 chapter 6 codes only. Append-only; a later entry (for example RULED_OUT) supersedes an earlier one.
+      security:
+        - oidc: [encounters:write]
+      x-roles: [CLINICIAN]
+      x-consent-prerequisite: CLINICAL_CARE in effect on the encounter's consent event; the encounter's facility on the participant's care team, and the caller working there.
+      x-audit-events: [DIAGNOSIS_RECORDED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/EncounterId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiagnosisCreate' }
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Diagnosis' }
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Diagnosis' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/encounters/{encounterId}/care-plan:
+    post:
+      tags: [encounters]
+      operationId: recordCarePlan
+      summary: Record the care plan and follow-up tasks
+      description: One plan per encounter. Tasks for the ASHA worker need the participant to have one (400 otherwise). referral_target records the intended pathway; it sends nothing (partner referrals are separate, ADR-015).
+      security:
+        - oidc: [encounters:write]
+      x-roles: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-consent-prerequisite: CLINICAL_CARE in effect on the encounter's consent event; the encounter's facility on the participant's care team, and the caller working there.
+      x-audit-events: [CARE_PLAN_RECORDED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/EncounterId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CarePlanCreate' }
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CarePlan' }
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CarePlan' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/encounters/{encounterId}/close:
+    post:
+      tags: [encounters]
+      operationId: closeEncounter
+      summary: Close an encounter
+      description: A closed encounter accepts no further entries (409).
+      security:
+        - oidc: [encounters:write]
+      x-roles: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-consent-prerequisite: CLINICAL_CARE in effect on the encounter's consent event; the encounter's facility on the participant's care team, and the caller working there.
+      x-audit-events: [ENCOUNTER_CLOSED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/EncounterId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EncounterClose' }
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Encounter' }
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Encounter' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/participants/{participantRef}/timeline:
+    get:
+      tags: [encounters]
+      operationId: getParticipantTimeline
+      summary: A participant's visits and encounters
+      description: ASHA visits and clinic encounters, oldest first, as coded summaries. Severity bands are included only for CLINICIAN and COUNSELLOR. no-store.
+      security:
+        - oidc: [encounters:read]
+      x-roles: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-consent-prerequisite: none; staff on the participant's care team only.
+      x-audit-events: [TIMELINE_READ]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/ParticipantRef'
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Timeline' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/care-tasks:
+    get:
+      tags: [encounters]
+      operationId: listCareTasks
+      summary: Follow-up tasks assigned to the caller (ASHA)
+      description: Tasks for the caller's assigned participants. No scores, notes or diagnoses.
+      security:
+        - oidc: [cases:read]
+      x-roles: [ASHA_WORKER]
+      x-consent-prerequisite: CLINICAL_CARE still in effect on the encounter behind each task; others are left out.
+      x-audit-events: [CARE_TASK_LIST_READ]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [OPEN, ALL], default: OPEN }
+      responses:
+        '200':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/care-tasks/{taskId}/completion:
+    post:
+      tags: [encounters]
+      operationId: completeCareTask
+      summary: Mark a follow-up task done
+      security:
+        - oidc: [cases:write]
+      x-roles: [ASHA_WORKER]
+      x-consent-prerequisite: CLINICAL_CARE still in effect on the encounter behind the task.
+      x-audit-events: [CARE_TASK_COMPLETED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskCompletion' }
+      responses:
+        '201':
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CareTask' }
+        '200':
+          description: Idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CareTask' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
 components:
   securitySchemes:
     oidc:
@@ -1275,6 +1633,16 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/JobId' }
+    EncounterId:
+      name: encounterId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^enc_[a-f0-9]{32}$' }
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^task_[a-f0-9]{32}$' }
     FacilityCode:
       name: facilityCode
       in: path
@@ -1405,6 +1773,7 @@ components:
         - MODEL_TRAINING
         - QUALITY_REVIEW
         - EXTERNAL_REFERRAL_SHARING
+        - CLINICAL_CARE
 
     ScopeDecision:
       type: object
@@ -1434,7 +1803,7 @@ components:
         scope_decisions:
           type: array
           minItems: 1
-          maxItems: 7
+          maxItems: 8
           uniqueItems: true
           items: { $ref: '#/components/schemas/ScopeDecision' }
           description: |
@@ -1442,7 +1811,8 @@ components:
             missing, or a scope is granted without the scopes it depends on. Dependency graph:
             AUDIO_RECORDING → SCREENING_PARTICIPATION; AUDIO_RETENTION, RESEARCH_FEATURE_REUSE and
             QUALITY_REVIEW → AUDIO_RECORDING; MODEL_TRAINING → RESEARCH_FEATURE_REUSE;
-            EXTERNAL_REFERRAL_SHARING → SCREENING_PARTICIPATION (1.3, ADR-015).
+            EXTERNAL_REFERRAL_SHARING → SCREENING_PARTICIPATION (1.3, ADR-015). CLINICAL_CARE has no
+            dependency (1.5, ADR-016): care by facility staff, asked on the clinic consent form.
         capture:
           type: object
           required: [captured_at_utc, method, read_aloud, comprehension_confirmed]
@@ -1473,6 +1843,14 @@ components:
             assisted_consent:
               type: boolean
               description: Participant needed additional support to consent. Policy for who may assist is pending.
+        facility_code:
+          type: string
+          pattern: '^[a-z0-9-]{3,40}$'
+          description: |
+            Required when facility staff record consent (1.5, ADR-016); omitted by ASHA workers. The
+            recorder must work at the facility. A new participant isn't assigned to any ASHA worker;
+            the facility joins their care team. An existing participant must already have the
+            recorder on their care team.
 
     ConsentEvent:
       type: object
@@ -1524,8 +1902,9 @@ components:
           description: |
             Scopes to withdraw. Omit to withdraw all scopes. Withdrawal cascades transitively to
             every dependent scope (see the dependency graph on ConsentEventCreate.scope_decisions):
-            SCREENING_PARTICIPATION withdraws everything (including EXTERNAL_REFERRAL_SHARING, which
-            revokes partner referrals); AUDIO_RECORDING also withdraws
+            SCREENING_PARTICIPATION withdraws everything that depends on it (including
+            EXTERNAL_REFERRAL_SHARING, which revokes partner referrals) but not CLINICAL_CARE, which is
+            a separate consent; omitting `scopes` withdraws everything; AUDIO_RECORDING also withdraws
             AUDIO_RETENTION, RESEARCH_FEATURE_REUSE, MODEL_TRAINING and QUALITY_REVIEW;
             RESEARCH_FEATURE_REUSE also withdraws MODEL_TRAINING. `withdrawn_scopes` in the
             response lists the full cascaded set.
@@ -2181,6 +2560,237 @@ components:
               reason_code: { type: string, enum: [ASHA_REFERRAL, CLINIC_REGISTRATION, TRANSFER] }
               added_at_utc: { $ref: '#/components/schemas/Timestamp' }
 
+    CodedItem:
+      type: object
+      required: [item_id, answer_code]
+      additionalProperties: false
+      properties:
+        item_id: { type: string, pattern: '^[A-Z0-9_]{2,40}$' }
+        answer_code: { type: string, pattern: '^[A-Z0-9_]{2,40}$' }
+    EncounterCreate:
+      type: object
+      required: [encounter_id, participant_ref, consent_event_id, facility_code, encounter_type, started_at_utc, data_origin]
+      additionalProperties: false
+      properties:
+        encounter_id: { type: string, pattern: '^enc_[a-f0-9]{32}$' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+        facility_code: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
+        encounter_type: { type: string, enum: [IN_PERSON, TELE_PHONE, TELE_VIDEO, COUNSELLING_SESSION] }
+        series_id: { type: [string, 'null'], pattern: '^ser_[a-f0-9]{32}$', description: Groups a course of counselling sessions. }
+        started_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        data_origin: { type: string, enum: [SYNTHETIC, PARTICIPANT] }
+    InstrumentResponseCreate:
+      type: object
+      required: [response_id, instrument, language_tag, answered_at_utc, items]
+      additionalProperties: false
+      description: |
+        Instruments in 1.5 (published scoring; translations not yet validated):
+        - phq-9 1.0.0: items PHQ9_1 to PHQ9_9; total 0–27; bands MINIMAL 0–4, MILD 5–9,
+          MODERATE 10–14, MODERATELY_SEVERE 15–19, SEVERE 20–27
+        - gad-7 1.0.0: items GAD7_1 to GAD7_7; total 0–21; bands MINIMAL 0–4, MILD 5–9,
+          MODERATE 10–14, SEVERE 15–21
+
+        Answers: NOT_AT_ALL (0), SEVERAL_DAYS (1), MORE_THAN_HALF_THE_DAYS (2),
+        NEARLY_EVERY_DAY (3), DECLINED (no score).
+      properties:
+        response_id: { type: string, pattern: '^ir_[a-f0-9]{32}$' }
+        instrument:
+          type: object
+          required: [instrument_id, instrument_version]
+          additionalProperties: false
+          properties:
+            instrument_id: { type: string, pattern: '^[a-z0-9-]{3,64}$' }
+            instrument_version: { type: string, pattern: '^\d+\.\d+\.\d+$' }
+        language_tag: { $ref: '#/components/schemas/LanguageTag' }
+        answered_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items: { $ref: '#/components/schemas/CodedItem' }
+    InstrumentResult:
+      type: object
+      required: [response_id, instrument_id, instrument_version, translation_validated, complete, total_score, severity_band, urgent_review_flag, items]
+      additionalProperties: false
+      description: An instrument score by its published rule. It is not a diagnosis.
+      properties:
+        response_id: { type: string, pattern: '^ir_[a-f0-9]{32}$' }
+        instrument_id: { type: string }
+        instrument_version: { type: string }
+        translation_validated: { type: boolean }
+        complete: { type: boolean, description: False if any item is missing or DECLINED; then no score. }
+        total_score: { type: [integer, 'null'], minimum: 0 }
+        severity_band: { type: [string, 'null'] }
+        urgent_review_flag: { type: boolean }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CodedItem' }
+    NoteCreate:
+      type: object
+      required: [note_id, text]
+      additionalProperties: false
+      properties:
+        note_id: { type: string, pattern: '^note_[a-f0-9]{32}$' }
+        text: { type: string, minLength: 1, maxLength: 4000 }
+    NoteStored:
+      type: object
+      required: [note_id, encounter_id, created_at_utc]
+      additionalProperties: false
+      properties:
+        note_id: { type: string, pattern: '^note_[a-f0-9]{32}$' }
+        encounter_id: { type: string, pattern: '^enc_[a-f0-9]{32}$' }
+        created_at_utc: { $ref: '#/components/schemas/Timestamp' }
+    DiagnosisCreate:
+      type: object
+      required: [diagnosis_id, code_system, code, certainty]
+      additionalProperties: false
+      properties:
+        diagnosis_id: { type: string, pattern: '^dx_[a-f0-9]{32}$' }
+        code_system: { type: string, enum: [ICD_11, ICD_10] }
+        code: { type: string, pattern: '^[0-9A-Z.]{3,10}$', description: ICD-10 chapter F or ICD-11 chapter 6 only. }
+        certainty: { type: string, enum: [PROVISIONAL, CONFIRMED, RULED_OUT] }
+    Diagnosis:
+      type: object
+      required: [diagnosis_id, code_system, code, certainty, recorded_by_ref, recorded_at_utc]
+      additionalProperties: false
+      description: Entered by a clinician. Never generated by the platform.
+      properties:
+        diagnosis_id: { type: string, pattern: '^dx_[a-f0-9]{32}$' }
+        code_system: { type: string, enum: [ICD_11, ICD_10] }
+        code: { type: string }
+        certainty: { type: string, enum: [PROVISIONAL, CONFIRMED, RULED_OUT] }
+        recorded_by_ref: { type: string, pattern: '^clin_[a-f0-9]{32}$' }
+        recorded_at_utc: { $ref: '#/components/schemas/Timestamp' }
+    CarePlanCreate:
+      type: object
+      required: [plan_id, referral_target, tasks]
+      additionalProperties: false
+      properties:
+        plan_id: { type: string, pattern: '^plan_[a-f0-9]{32}$' }
+        next_contact_at_utc: { type: [string, 'null'], format: date-time }
+        next_contact_mode: { type: [string, 'null'], enum: [IN_PERSON, PHONE, VIDEO, HOME_VISIT, null] }
+        referral_target: { type: string, enum: [NONE, PSYCHIATRY_OPD, DISTRICT_MENTAL_HEALTH_PROGRAMME, TELE_MANAS, COUNSELLING, EMERGENCY_SERVICES] }
+        tasks:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [task_id, assignee, task_type, due_by_utc]
+            additionalProperties: false
+            properties:
+              task_id: { type: string, pattern: '^task_[a-f0-9]{32}$' }
+              assignee: { type: string, enum: [ASHA_WORKER, FACILITY] }
+              task_type: { type: string, enum: [HOME_VISIT, CHECK_IN_CALL, ACCOMPANY_TO_FACILITY, TREATMENT_ADHERENCE_CHECK] }
+              due_by_utc: { $ref: '#/components/schemas/Timestamp' }
+    CareTask:
+      type: object
+      required: [task_id, participant_ref, assignee, task_type, due_by_utc, status, completed_at_utc, facility_label]
+      additionalProperties: false
+      properties:
+        task_id: { type: string, pattern: '^task_[a-f0-9]{32}$' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        assignee: { type: string, enum: [ASHA_WORKER, FACILITY] }
+        task_type: { type: string, enum: [HOME_VISIT, CHECK_IN_CALL, ACCOMPANY_TO_FACILITY, TREATMENT_ADHERENCE_CHECK] }
+        due_by_utc: { $ref: '#/components/schemas/Timestamp' }
+        status: { type: string, enum: [OPEN, DONE, NOT_REACHABLE, DECLINED, CANCELLED] }
+        completed_at_utc: { type: [string, 'null'], format: date-time }
+        facility_label: { type: string }
+    CarePlan:
+      type: object
+      required: [plan_id, next_contact_at_utc, next_contact_mode, referral_target, tasks]
+      additionalProperties: false
+      properties:
+        plan_id: { type: string, pattern: '^plan_[a-f0-9]{32}$' }
+        next_contact_at_utc: { type: [string, 'null'], format: date-time }
+        next_contact_mode: { type: [string, 'null'], enum: [IN_PERSON, PHONE, VIDEO, HOME_VISIT, null] }
+        referral_target: { type: string, enum: [NONE, PSYCHIATRY_OPD, DISTRICT_MENTAL_HEALTH_PROGRAMME, TELE_MANAS, COUNSELLING, EMERGENCY_SERVICES] }
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/CareTask' }
+    EncounterClose:
+      type: object
+      required: [ended_at_utc]
+      additionalProperties: false
+      properties:
+        ended_at_utc: { $ref: '#/components/schemas/Timestamp' }
+    TaskCompletion:
+      type: object
+      required: [completed_at_utc, outcome]
+      additionalProperties: false
+      properties:
+        completed_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        outcome: { type: string, enum: [DONE, NOT_REACHABLE, DECLINED] }
+    TaskList:
+      type: object
+      required: [tasks]
+      additionalProperties: false
+      properties:
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/CareTask' }
+    Encounter:
+      type: object
+      required: [encounter_id, participant_ref, facility_code, facility_label, encounter_type, series_id, care_role, recorded_by_ref,
+                 data_origin, started_at_utc, ended_at_utc, urgent_review_flag, clinical_notes_enabled, instruments, notes,
+                 clinician_diagnoses, care_plan]
+      additionalProperties: false
+      properties:
+        encounter_id: { type: string, pattern: '^enc_[a-f0-9]{32}$' }
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        facility_code: { type: string }
+        facility_label: { type: string }
+        encounter_type: { type: string, enum: [IN_PERSON, TELE_PHONE, TELE_VIDEO, COUNSELLING_SESSION] }
+        series_id: { type: [string, 'null'] }
+        care_role: { $ref: '#/components/schemas/CareRole' }
+        recorded_by_ref: { type: string, pattern: '^clin_[a-f0-9]{32}$' }
+        data_origin: { type: string, enum: [SYNTHETIC, PARTICIPANT] }
+        started_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        ended_at_utc: { type: [string, 'null'], format: date-time }
+        urgent_review_flag: { type: boolean }
+        clinical_notes_enabled: { type: boolean }
+        instruments:
+          type: array
+          items: { $ref: '#/components/schemas/InstrumentResult' }
+        notes:
+          type: array
+          description: Only for CLINICIAN or COUNSELLOR working at the encounter's facility, while notes are enabled.
+          items:
+            type: object
+            required: [note_id, text, author_ref, created_at_utc]
+            additionalProperties: false
+            properties:
+              note_id: { type: string }
+              text: { type: string }
+              author_ref: { type: string, pattern: '^clin_[a-f0-9]{32}$' }
+              created_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        clinician_diagnoses:
+          type: array
+          items: { $ref: '#/components/schemas/Diagnosis' }
+        care_plan:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/CarePlan'
+    Timeline:
+      type: object
+      required: [participant_ref, items]
+      additionalProperties: false
+      properties:
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        items:
+          type: array
+          items:
+            type: object
+            required: [kind, reference, at, summary_code, urgent_review_flag, facility_label]
+            additionalProperties: false
+            properties:
+              kind: { type: string, enum: [ASHA_VISIT, ENCOUNTER] }
+              reference: { type: string }
+              at: { $ref: '#/components/schemas/Timestamp' }
+              summary_code: { type: string, description: 'Coded summary, for example "TELE_PHONE PHQ-9=MODERATE" (bands for clinical roles only).' }
+              urgent_review_flag: { type: boolean }
+              facility_label: { type: [string, 'null'] }
+
     Problem:
       type: object
       description: RFC 9457 problem details. `detail` is a fixed, non-identifying message. `errors` gives field paths and rules, never values.
@@ -2209,6 +2819,7 @@ components:
             - CHECKSUM_MISMATCH
             - RECORDING_NOT_UPLOADED
             - PARTNER_NOT_ENABLED
+            - CLINICAL_NOTES_DISABLED
             - PAYLOAD_TOO_LARGE
             - UNSUPPORTED_MEDIA_TYPE
             - RATE_LIMITED

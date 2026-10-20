@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.mentalwellness.api.audit.AuditEvent;
 import org.mentalwellness.api.audit.AuditLog;
 import org.mentalwellness.api.audit.AuditOutcome;
+import org.mentalwellness.api.cases.CaseSummary;
 import org.mentalwellness.api.cases.ReferralBasis;
 import org.mentalwellness.api.cases.ReviewedCases;
 import org.mentalwellness.api.consent.ConsentGate;
@@ -114,6 +115,18 @@ class ReviewService implements ReviewedCases {
 			.map(r -> new ReferralBasis(r.caseId(), r.participantRef(), r.consentEventId(), r.languageTag(), r.dataOrigin(),
 					r.urgentReviewFlag(), Boolean.TRUE.equals(r.followUpRequested()), r.reviewId(), r.reviewDecision(), r.reviewFollowUpWithin(), r.reviewedAt(),
 					r.needsReview() && consentActive(r)));
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<CaseSummary> forParticipant(String participantRef) {
+		// Same rule as the review queue: visits whose screening consent was withdrawn drop out (review W8).
+		return this.repository.forParticipant(participantRef)
+			.stream()
+			.filter(this::consentActive)
+			.map(r -> new CaseSummary(r.caseId(), r.languageTag(), r.openedAt(), r.completedAt(), r.urgentReviewFlag(),
+					r.followUpRequested(), r.reviewDecision(), r.reviewFollowUpWithin(), r.reviewedAt()))
+			.toList();
 	}
 
 	/** Flagged, and the participant's screening consent still in effect. Anything else is 404. */

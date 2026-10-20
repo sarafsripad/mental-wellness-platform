@@ -64,8 +64,9 @@ class IdentityIntegrationTests {
 	@Test
 	void storesCiphertextOnlyAndReturnsNothing(CapturedOutput output) throws Exception {
 		MvcResult r = putIdentity(this.asha, this.participant, Fixtures.identity(this.consentEvent, NAME, VILLAGE));
-		assertThat(r.getResponse().getStatus()).isEqualTo(204);
-		assertThat(r.getResponse().getContentAsString()).isEmpty();
+		assertThat(r.getResponse().getStatus()).isEqualTo(200);
+		assertThat(r.getResponse().getContentAsString()).matches("\\{\"patient_card_code\":\"[A-Z2-9]{8}\"\\}")
+			.doesNotContain("Zeta").doesNotContain("Testgrama");
 
 		record Row(byte[] displayNameEnc, byte[] villageNameEnc, String dataOrigin) {
 		}
@@ -96,7 +97,7 @@ class IdentityIntegrationTests {
 	@Test
 	void appDatabaseNeverHoldsTheValues() throws Exception {
 		assertThat(putIdentity(this.asha, this.participant, Fixtures.identity(this.consentEvent, NAME, VILLAGE))
-			.getResponse().getStatus()).isEqualTo(204);
+			.getResponse().getStatus()).isEqualTo(200);
 		List<String> hits = this.appDb.sql("""
 				SELECT c.table_schema || '.' || c.table_name FROM information_schema.columns c
 				WHERE c.table_schema IN ('consent', 'voice', 'processing', 'research_export', 'audit', 'cases', 'idempotency')
@@ -113,8 +114,8 @@ class IdentityIntegrationTests {
 	@Test
 	void replacingIsIdempotent() throws Exception {
 		Map<String, Object> body = Fixtures.identity(this.consentEvent, NAME, VILLAGE);
-		assertThat(putIdentity(this.asha, this.participant, body).getResponse().getStatus()).isEqualTo(204);
-		assertThat(putIdentity(this.asha, this.participant, body).getResponse().getStatus()).isEqualTo(204);
+		assertThat(putIdentity(this.asha, this.participant, body).getResponse().getStatus()).isEqualTo(200);
+		assertThat(putIdentity(this.asha, this.participant, body).getResponse().getStatus()).isEqualTo(200);
 		assertThat(this.store.jdbc().sql("SELECT count(*) FROM identity.person WHERE participant_ref = ?")
 			.param(this.participant).query(Integer.class).single()).isEqualTo(1);
 	}
@@ -156,7 +157,7 @@ class IdentityIntegrationTests {
 	@Test
 	void thereIsNoWayToReadIdentityBack() throws Exception {
 		assertThat(putIdentity(this.asha, this.participant, Fixtures.identity(this.consentEvent, NAME, VILLAGE))
-			.getResponse().getStatus()).isEqualTo(204);
+			.getResponse().getStatus()).isEqualTo(200);
 		MvcResult r = this.mvc.perform(get("/v1/participants/{p}/identity", this.participant)
 			.header(HttpHeaders.AUTHORIZATION, "Bearer " + this.asha.build())).andReturn();
 		assertThat(r.getResponse().getStatus()).isEqualTo(405);

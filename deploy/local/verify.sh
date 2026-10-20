@@ -146,6 +146,13 @@ refuse "clinician token has no ASHA_WORKER role"  has "$CLIN" ASHA_WORKER
 refuse "review dashboard client refuses the password grant" \
        curl -sf -d grant_type=password -d client_id=wellness-review-web \
        -d username=clinician.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL"
+refuse "clinic app client refuses the password grant" \
+       curl -sf -d grant_type=password -d client_id=wellness-clinic-web \
+       -d username=doctor.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL"
+DOC=$(curl -sf -d grant_type=password -d client_id=wellness-e2e -d client_secret="$E2E_CLIENT_SECRET" \
+  -d username=counsellor.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL" | jwt_claims 2>/dev/null)
+check  "counsellor token has role COUNSELLOR and no ASHA role" \
+       bash -c 'grep -q COUNSELLOR <<<"$1" && ! grep -q ASHA_WORKER <<<"$1"' _ "$DOC"
 
 PARTNER=$(curl -sf -d grant_type=client_credentials -d client_id=partner-simulator \
   -d client_secret="$PARTNER_SIMULATOR_CLIENT_SECRET" "$TOKEN_URL" | jwt_claims 2>/dev/null)

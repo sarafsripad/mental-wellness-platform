@@ -19,7 +19,7 @@ class ModularityTests {
 	@Test
 	void expectedModulesExist() {
 		assertThat(MODULES.stream().map(m -> m.getIdentifier().toString()))
-			.contains("audit", "careteam", "cases", "consent", "identity", "processing", "researchexport", "shared", "voicesession");
+			.contains("audit", "careteam", "cases", "consent", "encounters", "identity", "processing", "researchexport", "shared", "voicesession");
 	}
 
 }

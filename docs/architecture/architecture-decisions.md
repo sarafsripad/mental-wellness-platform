@@ -22,7 +22,7 @@ This log holds ADR-003 to ADR-016. ADR-001 and ADR-002 are separate files, and f
 | [013](#adr-013-asha-assessment-cases-and-write-only-identity-intake) | ASHA assessment cases and write-only identity intake | ACCEPTED for synthetic data (repository owner, 2026-10-18); privacy lead review pending |
 | [014](#adr-014-clinician-review-of-flagged-cases) | Clinician review of flagged cases | ACCEPTED for synthetic data (repository owner, 2026-10-19); clinical lead review pending |
 | [015](#adr-015-partner-programme-integration-simulated-only) | Partner programme integration (simulated only) | ACCEPTED for synthetic data and simulated partners (repository owner, 2026-10-20); agreements, legal and clinical review pending |
-| [016](#adr-016-care-teams-and-clinic-staff-access) | Care teams and clinic staff access | ACCEPTED for synthetic data (repository owner, 2026-10-20); phase 1 built, phases 2–5 planned |
+| [016](#adr-016-care-teams-and-clinic-staff-access) | Care teams and clinic staff access | ACCEPTED for synthetic data (repository owner, 2026-10-20); phases 1–5 built; privacy, clinical and legal review pending |
 
 Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means a decision the repository owner explicitly made in this session. No ADR here is approved for clinical use.
 
@@ -451,8 +451,54 @@ No data-sharing agreement, specification or credentials exist, and Tele-MANAS an
 - *Positive:* a single record and continuity of care; facility-level need-to-know for staff.
 - *Negative:* memberships must be administered, and the clinician review queue (ADR-014) is still programme-wide until it's filtered by care team.
 
+**Decision (phases 2–5, built 2026-10-20).**
+- **Clinic consent:** facility staff record consent with `facility_code`. A new participant is registered with no ASHA worker, and the facility joins the care team. An existing participant needs the recorder already on the care team. The consent module reaches the care-team rule through `StaffConsentAuthority`, a hook, so the modules don't depend on each other in a cycle.
+- **New scope `CLINICAL_CARE`:** top-level, so withdrawing screening doesn't withdraw it. It's asked on `clinic-care-consent` 0.1.0, in 12 languages.
+- **Identity 1.1:**
+  - optional encrypted phone
+  - a patient card code, assigned once
+  - a blind search index: HMAC of the normalised name and village under `WELLNESS_IDENTITY_INDEX_KEY`
+  - **audited lookup** (`POST …/identity/lookup`): care-team staff only, reason-coded (DIRECT_CARE, TELE_CONSULTATION, FOLLOW_UP_CONTACT), limited to 30 per hour per staff member, refused once the consent behind the record is withdrawn
+  - search by card code, or by exact name and village, returning only participants on the caller's care teams
+
+  ASHA workers still can't read identity back.
+- **`encounters` module:** encounters (in person, tele-phone, tele-video, counselling) on the caller's facility, which must be on the care team, under `CLINICAL_CARE`.
+  - **Instruments:** PHQ-9 and GAD-7 are scored by their published rule only when complete. They're labelled "instrument score, not a diagnosis", with `translation_validated: false`. PHQ-9 item 9 above "not at all" raises the urgent flag.
+  - **Notes:** AES-GCM under `WELLNESS_NOTES_KEY`, append-only, **off** (`wellness.clinical-notes.enabled`). Shown only to clinicians and counsellors at the encounter's facility.
+  - **Diagnoses:** ICD-10 chapter F or ICD-11 chapter 6, clinician-only, append-only.
+  - **Care plans:** a referral pathway (recorded; nothing is sent) and tasks for the ASHA worker.
+- **Role matrix:**
+  - `CLINICIAN`: everything.
+  - `COUNSELLOR`: everything except diagnoses.
+  - `HEALTH_STAFF`: in-person encounters and care plans only. No scores, notes or diagnoses.
+  - ASHA worker: their own tasks only. No scores, notes or diagnoses.
+- **Apps:**
+  - `/clinic/`: flag-gated, strict CSP, PKCE client `wellness-clinic-web`, identifiers cleared when switching patient.
+  - The ASHA app's Follow-ups shows clinic tasks, and the visit-saved screen shows the card code.
+- Research exports never include encounters, notes or diagnoses (tested).
+
 **Unresolved.**
-- Phases 2–5 (identity lookup, `CLINICAL_CARE` consent, notes policy, instruments). Each needs privacy and clinical approval before real data.
-- Who may add facilities beyond ASHA referral and ADMIN (for example clinic self-registration in phase 2).
-- Removing a facility from a care team.
+- **Privacy lead:** the identity lookup and phone field; the notes policy (until then notes stay off); identity and clinical-record retention; deletion on withdrawal.
+- **Clinical lead:** validated translations of PHQ-9 and GAD-7; the safety protocol for a positive PHQ-9 item 9; whether `COUNSELLOR` may see diagnoses.
+- **Programme:** removing a facility from a care team; facility-to-facility referral workflow; whether clinic-registered patients get an ASHA worker assigned.
+- The lookup rate limit is per API instance; production adds a cluster-wide WAF limit.
+
+**Security review (2026-10-20).** No blockers. Fixed with regression tests:
+- Detail shown in an encounter now follows the **membership** role at that facility, not the token alone, so a token that has both roles but only a `HEALTH_STAFF` membership sees no scores or diagnoses.
+- Counsellors no longer see diagnoses.
+- Recording consent can't add another of the staff member's facilities to a care team.
+- An ASHA worker can't claim a clinic-registered patient by recording consent; they get 403. V15's comment says the worker "becomes their assigned worker". That is no longer true, but the comment can't change because the migration is already applied. This ADR is the record.
+- `clinic-*` consent forms are accepted only from facility staff, and ASHA forms only from ASHA workers.
+- Denied lookups and each search match are audited against the participant.
+- The clinic timeline hides visits whose screening consent was withdrawn.
+
+Accepted for now, open:
+- Identity `PUT` overwrites with no version history.
+- Two concurrent "new participant" consents can race on the existence check.
+- `DECLINED` on PHQ-9 item 9 raises no flag (clinical lead).
+- Name search applies its row limit before the care-team filter.
+- Idempotency records hold clinical response bodies for their retention window.
+- Care-task type names hint at treatment.
+- Staff can withdraw consent that an ASHA worker recorded (programme).
+- Nothing checks that the notes key differs from the identity key.
 

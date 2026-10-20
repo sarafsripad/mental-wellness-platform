@@ -56,7 +56,7 @@ class ConsentRulesTests {
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = ConsentScope.class, names = "SCREENING_PARTICIPATION", mode = EnumSource.Mode.EXCLUDE)
+	@EnumSource(value = ConsentScope.class, names = { "SCREENING_PARTICIPATION", "CLINICAL_CARE" }, mode = EnumSource.Mode.EXCLUDE)
 	void grantingAScopeWithoutItsDependencyIsInvalid(ConsentScope scope) {
 		Set<ConsentScope> granted = EnumSet.copyOf(ALL);
 		granted.remove(scope.requires());
@@ -69,7 +69,10 @@ class ConsentRulesTests {
 			.containsExactlyInAnyOrder(AUDIO_RECORDING, AUDIO_RETENTION, RESEARCH_FEATURE_REUSE, MODEL_TRAINING, QUALITY_REVIEW);
 		assertThat(ConsentRules.toWithdraw(Set.of(RESEARCH_FEATURE_REUSE), ALL))
 			.containsExactlyInAnyOrder(RESEARCH_FEATURE_REUSE, MODEL_TRAINING);
-		assertThat(ConsentRules.toWithdraw(Set.of(SCREENING_PARTICIPATION), ALL)).isEqualTo(ALL);
+		// Everything that depends on screening; clinical care is a separate consent (ADR-016).
+		Set<ConsentScope> dependents = EnumSet.copyOf(ALL);
+		dependents.remove(ConsentScope.CLINICAL_CARE);
+		assertThat(ConsentRules.toWithdraw(Set.of(SCREENING_PARTICIPATION), ALL)).isEqualTo(dependents);
 		assertThat(ConsentRules.toWithdraw(null, ALL)).as("no scopes named = withdraw all").isEqualTo(ALL);
 		assertThat(ConsentRules.toWithdraw(Set.of(MODEL_TRAINING), ALL)).containsExactly(MODEL_TRAINING);
 	}
