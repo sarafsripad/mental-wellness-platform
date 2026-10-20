@@ -1,0 +1,109 @@
+openapi: 3.1.0
+info:
+  title: Mental Wellness Platform — Partner Integration API (internal)
+  version: 1.0.0-draft.1
+  summary: Coded referral status events from partner programmes (ADR-015).
+  description: |
+    Called by partner systems, never by people. Today the only caller is the local SIMULATED
+    partner (deploy/local/partner-simulator); no real Tele-MANAS, eSanjeevani, ABDM or HMIS system
+    is connected or claimed. A real partner is added only after a signed data-sharing agreement,
+    its technical specification and a named approval (docs/integration/partner-onboarding.md).
+
+    **Authentication:** OAuth client credentials. The token must carry role `PARTNER_SYSTEM` and
+    scope `partner:events`, and its `azp` (client) must be the client configured for the partner
+    in the path. A partner can only report on referrals that were sent to it.
+
+    **Payload:** coded statuses only, no free text and no information about the person.
+
+    **Idempotency:** `event_id` is unique per partner. A repeat with the same body returns 200, and
+    with a different body 409 IDEMPOTENCY_CONFLICT. Events older than the latest applied one, or
+    arriving after CLOSED or DECLINED, are recorded but not applied (`applied: false`). Events
+    for REVOKED referrals are refused with 409.
+
+    Outbound referrals are POSTed by the platform to `<partner endpoint>/referrals` as
+    contracts/integration/referral-bundle.schema.json, signed with
+    `X-Wellness-Signature: v1=<hex HMAC-SHA256(secret, message_id + "." + timestamp + "." + body)>`.
+servers:
+  - url: http://localhost:8080
+    description: Local development only.
+security:
+  - oidc: [partner:events]
+tags:
+  - name: partner-events
+    description: Status events from partner systems.
+
+paths:
+  /internal/v1/partners/{partnerId}/referral-events:
+    post:
+      tags: [partner-events]
+      operationId: postReferralEvent
+      summary: Report a referral's status at the partner
+      x-roles: [PARTNER_SYSTEM]
+      x-consent-prerequisite: none (the referral already required EXTERNAL_REFERRAL_SHARING; revoked referrals refuse events)
+      x-audit-events: [REFERRAL_STATUS_RECEIVED]
+      parameters:
+        - $ref: 'wellness-api.v1.yaml#/components/parameters/CorrelationId'
+        - name: partnerId
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferralEvent' }
+            examples:
+              contacted: { $ref: '#/components/examples/ReferralEventExample' }
+      responses:
+        '201':
+          description: Event recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferralEventResult' }
+        '200':
+          description: Replay of an event already recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferralEventResult' }
+        '400': { $ref: 'wellness-api.v1.yaml#/components/responses/BadRequest' }
+        '401': { $ref: 'wellness-api.v1.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: 'wellness-api.v1.yaml#/components/responses/Forbidden' }
+        '404': { $ref: 'wellness-api.v1.yaml#/components/responses/NotFound' }
+        '409': { $ref: 'wellness-api.v1.yaml#/components/responses/Conflict' }
+        '500': { $ref: 'wellness-api.v1.yaml#/components/responses/InternalError' }
+
+components:
+  securitySchemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: http://localhost:8081/realms/wellness-local/.well-known/openid-configuration
+  schemas:
+    ReferralEvent:
+      type: object
+      required: [event_id, referral_id, status, occurred_at_utc]
+      additionalProperties: false
+      properties:
+        event_id: { type: string, pattern: '^[A-Za-z0-9-]{1,64}$' }
+        referral_id: { type: string, pattern: '^ref_[a-f0-9]{32}$' }
+        status: { type: string, enum: [RECEIVED, CONTACT_ATTEMPTED, CONTACTED, APPOINTMENT_BOOKED, CLOSED, DECLINED] }
+        occurred_at_utc: { type: string, format: date-time }
+        partner_reference:
+          type: [string, 'null']
+          pattern: '^[A-Za-z0-9-]{1,64}$'
+          description: The partner's own ticket reference (optional).
+    ReferralEventResult:
+      type: object
+      required: [referral_id, status, applied]
+      additionalProperties: false
+      properties:
+        referral_id: { type: string, pattern: '^ref_[a-f0-9]{32}$' }
+        status: { $ref: 'wellness-api.v1.yaml#/components/schemas/ReferralStatus' }
+        applied: { type: boolean, description: False when the event was recorded but did not change the status. }
+  examples:
+    ReferralEventExample:
+      value:
+        event_id: SIM-EVT-0001
+        referral_id: ref_00000000000000000000000000000001
+        status: CONTACTED
+        occurred_at_utc: '2026-10-20T10:30:00Z'
+        partner_reference: SIM-TM-0042

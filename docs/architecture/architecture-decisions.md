@@ -3,7 +3,7 @@
 **Date:** 2026-10-17
 **Context document:** [solution-architecture.md](solution-architecture.md)
 
-This log holds ADR-003 to ADR-014. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
+This log holds ADR-003 to ADR-015. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
 
 | ADR | Title | Status |
 |---|---|---|
@@ -21,6 +21,7 @@ This log holds ADR-003 to ADR-014. ADR-001 and ADR-002 are separate files, and f
 | [012](#adr-012-experimental-model-deployment-and-release-approval) | Experimental model deployment and release approval | PROPOSED |
 | [013](#adr-013-asha-assessment-cases-and-write-only-identity-intake) | ASHA assessment cases and write-only identity intake | ACCEPTED for synthetic data (repository owner, 2026-10-18); privacy lead review pending |
 | [014](#adr-014-clinician-review-of-flagged-cases) | Clinician review of flagged cases | ACCEPTED for synthetic data (repository owner, 2026-10-19); clinical lead review pending |
+| [015](#adr-015-partner-programme-integration-simulated-only) | Partner programme integration (simulated only) | ACCEPTED for synthetic data and simulated partners (repository owner, 2026-10-20); agreements, legal and clinical review pending |
 
 Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means a decision the repository owner explicitly made in this session. No ADR here is approved for clinical use.
 
@@ -380,4 +381,47 @@ Mapping from the old purposes: `CLINICAL_SUPPORT` → `SCREENING_PARTICIPATION` 
 - Review time targets, escalation when they're missed, and real referral pathways (clinical lead).
 - Whether urgent cases stay visible after consent is withdrawn (clinical lead and privacy lead).
 - The queue's consent filter runs after the database limit, so a page can hold fewer than `limit` items. That's acceptable at today's volumes.
+
+---
+
+## ADR-015: Partner programme integration (simulated only)
+
+**Context.** Flagged visits need to reach national programmes:
+- Tele-MANAS (tele mental health, 14416)
+- eSanjeevani (teleconsultation)
+- ABDM/ABHA (records exchange)
+- State HMIS/NHM (reporting)
+
+No data-sharing agreement, specification or credentials exist, and Tele-MANAS and eSanjeevani have no public API. Rule 7 forbids pretending such access. On 2026-10-20 the repository owner chose to support all four, to show helplines now, to build an integration framework against a simulated partner, to handle referrals outbound and status inbound, and to add a new consent scope for sharing.
+
+**Decision.**
+- **Support contacts:** `GET /v1/programme/support-contacts` serves helplines from configuration (Tele-MANAS 14416 and 1-800-891-4416, marked `PENDING_CLINICAL_LEAD`). They appear as `tel:` links in the ASHA urgent alert and on urgent cases in the dashboard. No data is sent.
+- **Consent:** a new scope `EXTERNAL_REFERRAL_SHARING`, which depends on SCREENING_PARTICIPATION. It's asked as a separate question on ASHA consent form 0.2.0. Feature records keep listing only the six v2.0.0 scopes (`ConsentScope.FEATURE_RECORD_SCOPES`).
+- **Referrals (`integration` module):**
+  - A clinician sends a referral explicitly (`POST /v1/review-queue/{caseId}/referrals`). The latest review must be REFER or URGENT_REFER, sharing consent must be in effect, and the partner must be enabled.
+  - The referral is a pseudonymous FHIR R4 Bundle: Patient carries only a per-partner HMAC key (`pk_`) and a language; ServiceRequest carries priority, coded reason, timeframe and an 8-character handoff code. No names, contact details, answers or free text, and every bundle is checked against its schema before it's queued.
+  - Delivery runs from an outbox with a dispatcher (SKIP LOCKED claims, a lease, retries with backoff up to 5 attempts, HMAC-signed requests, and a kill switch that's off by default).
+- **Status:** partners post coded events to `integration-internal.v1.yaml` using client credentials with the `PARTNER_SYSTEM` role. The `azp` claim must match the partner, and a partner sees only its own referrals. Events are deduplicated and ordered.
+- **Withdrawal:** `REVOKE_EXTERNAL_REFERRAL` cancels anything not yet sent and sends a revocation to partners that already received the referral.
+- **Warm handoff:** contact goes through the ASHA worker, who quotes the handoff code. The platform holds no phone numbers, and identity stays write-only.
+- **HMIS:** `run-hmis-report.sh` is human-triggered. It produces counts per month by age band and gender, plus referral counts, with 1–4 shown as `<5`, and has its own neutral schema.
+- **Guardrails:** `mode: REAL` partners refuse to start without an agreement reference, a named approver and an environment approved for participant data. Enabled SIMULATED partners must use loopback endpoints. The simulator in `deploy/local/partner-simulator` labels everything SIMULATED.
+
+**Rationale.** The platform-side work can be built and tested now without fabricating any access. Each real partner then needs only configuration plus its own adapter details, after its paperwork (docs/integration/partner-onboarding.md).
+
+**Consequences.**
+- *Positive:* referrals are explicit, consented, pseudonymous, reliable, revocable and audited. Real partners are blocked by code, not just by policy.
+- *Negative:* without contact details the partner can't reach the person on its own, so the warm handoff depends on the worker.
+- *Negative:* the HMAC signing is a local convention that a real partner's specification will likely replace.
+- *Negative:* HMIS figures have no geography.
+
+**Unresolved.**
+- Contact-detail sharing (privacy lead).
+- Real partner specifications and agreements.
+- ABHA capture (new identifier, needing privacy approval).
+- HMIS format and disclosure rules (programme).
+- Verification of the support contacts for each programme area (clinical lead).
+- **From the security review (2026-10-20):**
+  - Fixed: an in-flight send is treated as possibly delivered, so a withdrawal always revokes it. Consent is re-checked when each referral is sent. Revocations go to partners disabled since, and failed revocations are logged and audited for manual follow-up.
+  - Open: per-partner consent (the scope is generic today); an alert channel for failed revocations; whether HMIS counts should exclude withdrawn participants; complementary suppression; a separate OAuth client per real partner.
 

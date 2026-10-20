@@ -18,5 +18,19 @@ INSERT INTO consent.consent_form (form_id, form_version, language_tag, offered_s
   ('asha-wellness-consent', '0.1.0', 'gu-IN', ARRAY['SCREENING_PARTICIPATION']::consent.scope[]),
   ('asha-wellness-consent', '0.1.0', 'pa-IN', ARRAY['SCREENING_PARTICIPATION']::consent.scope[]),
   ('asha-wellness-consent', '0.1.0', 'ur-IN', ARRAY['SCREENING_PARTICIPATION']::consent.scope[]),
-  ('asha-wellness-consent', '0.1.0', 'or-IN', ARRAY['SCREENING_PARTICIPATION']::consent.scope[])
+  ('asha-wellness-consent', '0.1.0', 'or-IN', ARRAY['SCREENING_PARTICIPATION']::consent.scope[]),
+  -- 0.2.0 (ADR-015) also asks, separately, whether a pseudonymous referral may be shared with a
+  -- partner programme such as Tele-MANAS or eSanjeevani.
+  ('asha-wellness-consent', '0.2.0', 'en-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'te-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'hi-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'ta-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'bn-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'mr-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'kn-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'ml-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'gu-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'pa-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'ur-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[]),
+  ('asha-wellness-consent', '0.2.0', 'or-IN', ARRAY['SCREENING_PARTICIPATION','EXTERNAL_REFERRAL_SHARING']::consent.scope[])
 ON CONFLICT (form_id, form_version, language_tag) DO NOTHING;

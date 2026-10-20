@@ -12,6 +12,7 @@ Slice step S2 of the [vertical-slice plan](../../docs/implementation/vertical-sl
 | `storage` | chrislusf/seaweedfs:4.47 | `127.0.0.1:8333` (S3 API) | Bucket `wellness-audio`: SSE-S3 encryption by default, 30-day expiry rule, no anonymous access, and an app key limited to this bucket |
 | `storage-init` | amazon/aws-cli:2.37.4 | — | One-shot setup of the bucket, encryption and lifecycle rule (exits 0 when done) |
 | `keycloak` | quay.io/keycloak/keycloak:26.0.5 | `127.0.0.1:8081` | Realm `wellness-local`: roles, API scopes, clients and synthetic users matching the OpenAPI contracts |
+| `partner-simulator` | python:3.12.14-slim-bookworm | `127.0.0.1:8090` | **SIMULATED** partner programmes (Tele-MANAS, eSanjeevani, HMIS stand-ins) for referral tests. Verifies signatures and posts status events back. Not a real partner, and it never contacts one. |
 
 Everything binds to `127.0.0.1`, so nothing is reachable from your network.
 
@@ -23,7 +24,7 @@ The `wellness-api` (S3) and `audio-processing-worker` (S7) services will be adde
 cd deploy/local
 ./init-env.sh     # once: writes .env with random local secrets (gitignored, mode 600)
 ./up.sh           # checks .env is complete, then docker compose up -d
-./verify.sh       # 37 checks; exits 0 when all pass
+./verify.sh       # 42 checks; exits 0 when all pass
 ```
 
 First start takes a few minutes while images download, and Keycloak takes about 30 seconds to become healthy.
@@ -50,6 +51,7 @@ All secrets are in `deploy/local/.env`, created by `init-env.sh`. Nothing secret
 | Keycloak admin console (http://localhost:8081/admin) | `admin` | `KEYCLOAK_ADMIN_PASSWORD` |
 | Synthetic users `asha.test1`, `asha.test2`, `clinician.test1`, `admin.test1` | — | `KEYCLOAK_TEST_USER_PASSWORD` |
 | Worker client (client credentials) | `processing-worker` | `PROCESSING_WORKER_CLIENT_SECRET` |
+| Partner simulator client, and the signing key for messages to it | `partner-simulator` | `PARTNER_SIMULATOR_CLIENT_SECRET`, `PARTNER_SIMULATOR_SIGNING_SECRET` (added to an older `.env` by `up.sh`) |
 | E2E test client (password grant, **local only**) | `wellness-e2e` | `E2E_CLIENT_SECRET` |
 
 Example connection: `PGPASSWORD=<APP_DB_PASSWORD> psql -h 127.0.0.1 -p 5433 -U app_user -d app_db`
@@ -64,6 +66,7 @@ Example connection: `PGPASSWORD=<APP_DB_PASSWORD> psql -h 127.0.0.1 -p 5433 -U a
 | `wellness-dev-console` | Authorization code + PKCE for the browser test console at `http://localhost:8080/dev-console/`. **Exists only here.** | `consent:*`, `voice:*`, `processing:read/write` |
 | `wellness-asha-web` | Authorization code + PKCE for the ASHA Care web app at `http://localhost:8080/asha/`. **Exists only here.** | `consent:*`, `cases:*` (no voice) |
 | `wellness-review-web` | Authorization code + PKCE for the clinician review dashboard at `http://localhost:8080/review/`. **Exists only here.** | `review:*` only |
+| `partner-simulator` | Client credentials, role `PARTNER_SYSTEM`. **Exists only here.** | `partner:events` |
 
 **Tokens:**
 - Issuer: `http://localhost:8081/realms/wellness-local`, including when Keycloak is reached from containers.

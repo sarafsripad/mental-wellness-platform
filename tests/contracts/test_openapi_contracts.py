@@ -8,6 +8,7 @@ PUBLIC_V1 = "wellness-api.v1.yaml"
 WORKER_V1 = "processing-worker.internal.v1.yaml"
 PROVISIONAL = "wellness-api-provisional.v0.yaml"
 IDENTITY_V1 = "identity-api.v1.yaml"
+PARTNER_V1 = "integration-internal.v1.yaml"
 HTTP_METHODS = ("get", "put", "post", "delete", "patch")
 
 
@@ -23,16 +24,16 @@ def param_refs(op):
            {p.get("name") for p in op.get("parameters", []) if "name" in p}
 
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PARTNER_V1, PROVISIONAL])
 def test_openapi_documents_are_structurally_valid(openapi_docs, name):
     validate_openapi(openapi_docs[name], base_uri=(OPENAPI_DIR / name).as_uri())
 
 
 def test_all_openapi_files_are_covered(openapi_docs):
-    assert set(openapi_docs) == {PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL}
+    assert set(openapi_docs) == {PUBLIC_V1, WORKER_V1, IDENTITY_V1, PARTNER_V1, PROVISIONAL}
 
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PARTNER_V1, PROVISIONAL])
 def test_embedded_examples_match_schemas(validate_examples, openapi_docs, registry, name):
     validate_examples.failures = []
     validate_examples.check_openapi(OPENAPI_DIR / name, openapi_docs[name], registry)
@@ -56,7 +57,7 @@ def test_example_checker_detects_bad_examples(validate_examples, openapi_docs, r
 
 # --- authentication and authorization policy -----------------------------------
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PARTNER_V1, PROVISIONAL])
 def test_no_anonymous_operations(openapi_docs, name):
     doc = openapi_docs[name]
     assert doc.get("security"), "global security requirement missing"
@@ -65,13 +66,13 @@ def test_no_anonymous_operations(openapi_docs, name):
             assert op["security"] and {} not in op["security"], f"{method} {path}"
 
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PROVISIONAL])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PARTNER_V1, PROVISIONAL])
 def test_researcher_has_no_application_access(openapi_docs, name):
     for path, method, op in operations(openapi_docs[name]):
         assert "RESEARCHER" not in op.get("x-roles", []), f"{method} {path}"
 
 
-@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1])
+@pytest.mark.parametrize("name", [PUBLIC_V1, WORKER_V1, IDENTITY_V1, PARTNER_V1])
 def test_v1_operations_declare_roles_and_audit(openapi_docs, name):
     for path, method, op in operations(openapi_docs[name]):
         assert op.get("x-roles"), f"{method} {path}: x-roles"
@@ -156,6 +157,26 @@ def test_direct_identifiers_only_in_identity_api(openapi_docs):
         for node in _walk(doc):
             props = set(node.get("properties", {})) if isinstance(node.get("properties"), dict) else set()
             assert not props & forbidden, f"{name}: {props & forbidden}"
+
+
+def test_partner_operations_are_partner_only(openapi_docs):
+    for path, method, op in operations(openapi_docs[PARTNER_V1]):
+        assert op["x-roles"] == ["PARTNER_SYSTEM"], f"{method} {path}"
+        assert path.startswith("/internal/"), path
+
+
+def test_referral_bundle_cannot_carry_identifiers():
+    """The outbound partner payload has no field where a name, contact detail or answer could go."""
+    import json
+    from conftest import CONTRACTS
+    schema = json.loads((CONTRACTS / "integration" / "referral-bundle.schema.json").read_text())
+    assert schema["x-governance"]["direct_identifiers_prohibited"] is True
+    forbidden = {"name", "telecom", "address", "birthDate", "gender", "note", "text", "display", "contact"}
+    for node in _walk(schema):
+        props = set(node.get("properties", {})) if isinstance(node.get("properties"), dict) else set()
+        assert not props & forbidden, props & forbidden
+        if "properties" in node:
+            assert node.get("additionalProperties") is False, sorted(props)
 
 
 def test_no_score_fields_on_cases(openapi_docs):

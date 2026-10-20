@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mental-wellness-platform/contracts/integration/referral-bundle/v1.0.0",
+  "title": "PartnerReferralBundle",
+  "description": "The only payload the platform sends to a partner programme (ADR-015). It is a FHIR R4 Bundle of type 'collection', shaped after FHIR R4 Patient and ServiceRequest so ABDM/NRCeS profiles can be adopted later. It is pseudonymous: the Patient carries only a partner-specific keyed pseudonym and the preferred language, with no name, telecom, address, birth date or gender. The ServiceRequest carries coded facts only (priority, reason, timeframe) and a short handoff code that the ASHA worker quotes when connecting the person (warm handoff). Questionnaire answers, scores and free text are never included. Status 'revoked' withdraws an earlier referral after consent withdrawal.",
+  "version": "1.0.0",
+  "x-governance": {
+    "direct_identifiers_prohibited": true,
+    "consent_scope_required": "EXTERNAL_REFERRAL_SHARING",
+    "real_partners_blocked_until": "signed data-sharing agreement, partner specification and named approval (docs/integration/partner-onboarding.md)"
+  },
+  "type": "object",
+  "required": ["resourceType", "id", "type", "timestamp", "meta", "entry"],
+  "additionalProperties": false,
+  "properties": {
+    "resourceType": { "const": "Bundle" },
+    "id": { "type": "string", "pattern": "^msg_[a-f0-9]{32}$" },
+    "type": { "const": "collection" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "meta": {
+      "type": "object",
+      "required": ["tag"],
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["system", "code"],
+            "additionalProperties": false,
+            "properties": {
+              "system": { "const": "https://mental-wellness-platform/data-origin" },
+              "code": { "enum": ["SYNTHETIC", "PARTICIPANT"] }
+            }
+          }
+        }
+      }
+    },
+    "entry": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "type": "object", "required": ["resource"], "additionalProperties": false, "properties": { "resource": { "$ref": "#/$defs/Patient" } } },
+        { "type": "object", "required": ["resource"], "additionalProperties": false, "properties": { "resource": { "$ref": "#/$defs/ServiceRequest" } } }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "Coding": {
+      "type": "object",
+      "required": ["system", "code"],
+      "additionalProperties": false,
+      "properties": {
+        "system": { "type": "string", "format": "uri" },
+        "code": { "type": "string", "pattern": "^[A-Za-z0-9_-]{2,40}$" }
+      }
+    },
+    "Patient": {
+      "type": "object",
+      "required": ["resourceType", "id", "identifier", "communication"],
+      "additionalProperties": false,
+      "properties": {
+        "resourceType": { "const": "Patient" },
+        "id": { "type": "string", "pattern": "^pk_[a-f0-9]{32}$" },
+        "identifier": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["system", "value"],
+            "additionalProperties": false,
+            "properties": {
+              "system": { "type": "string", "pattern": "^https://mental-wellness-platform/partner-key/[a-z0-9-]{3,40}$" },
+              "value": { "type": "string", "pattern": "^pk_[a-f0-9]{32}$" }
+            }
+          }
+        },
+        "communication": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["language"],
+            "additionalProperties": false,
+            "properties": {
+              "language": {
+                "type": "object",
+                "required": ["coding"],
+                "additionalProperties": false,
+                "properties": {
+                  "coding": {
+                    "type": "array", "minItems": 1, "maxItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": ["system", "code"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "system": { "const": "urn:ietf:bcp:47" },
+                        "code": { "enum": ["en-IN", "te-IN", "hi-IN", "ta-IN", "bn-IN", "mr-IN", "kn-IN", "ml-IN", "gu-IN", "pa-IN", "ur-IN", "or-IN"] }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ServiceRequest": {
+      "type": "object",
+      "required": ["resourceType", "id", "identifier", "status", "intent", "priority", "code", "reasonCode", "subject", "authoredOn", "occurrencePeriod"],
+      "additionalProperties": false,
+      "properties": {
+        "resourceType": { "const": "ServiceRequest" },
+        "id": { "type": "string", "pattern": "^ref_[a-f0-9]{32}$" },
+        "identifier": {
+          "type": "array", "minItems": 1, "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["system", "value"],
+            "additionalProperties": false,
+            "properties": {
+              "system": { "const": "https://mental-wellness-platform/handoff-code" },
+              "value": { "type": "string", "pattern": "^[A-Z0-9]{8}$" }
+            }
+          }
+        },
+        "status": { "enum": ["active", "revoked"] },
+        "intent": { "const": "order" },
+        "priority": { "enum": ["routine", "urgent"], "description": "urgent for URGENT_REFER, otherwise routine (FHIR request-priority codes)." },
+        "code": {
+          "type": "object", "required": ["coding"], "additionalProperties": false,
+          "properties": { "coding": { "type": "array", "minItems": 1, "maxItems": 1, "items": {
+            "type": "object", "required": ["system", "code"], "additionalProperties": false,
+            "properties": { "system": { "const": "https://mental-wellness-platform/codes/referral" }, "code": { "const": "MENTAL_HEALTH_FOLLOW_UP" } } } } }
+        },
+        "reasonCode": {
+          "type": "array", "minItems": 1, "maxItems": 2,
+          "items": {
+            "type": "object", "required": ["coding"], "additionalProperties": false,
+            "properties": { "coding": { "type": "array", "minItems": 1, "maxItems": 1, "items": {
+              "type": "object", "required": ["system", "code"], "additionalProperties": false,
+              "properties": { "system": { "const": "https://mental-wellness-platform/codes/referral-reason" },
+                "code": { "enum": ["URGENT_REVIEW_FLAG", "FOLLOW_UP_REQUESTED"] } } } } }
+          }
+        },
+        "subject": {
+          "type": "object", "required": ["reference"], "additionalProperties": false,
+          "properties": { "reference": { "type": "string", "pattern": "^Patient/pk_[a-f0-9]{32}$" } }
+        },
+        "authoredOn": { "type": "string", "format": "date-time" },
+        "occurrencePeriod": {
+          "type": "object", "required": ["start", "end"], "additionalProperties": false,
+          "properties": { "start": { "type": "string", "format": "date-time" }, "end": { "type": "string", "format": "date-time" } },
+          "description": "Window in which the clinician asked for contact (from the review's follow_up_within)."
+        }
+      }
+    }
+  }
+}

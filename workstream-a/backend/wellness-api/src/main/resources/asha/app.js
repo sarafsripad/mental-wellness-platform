@@ -10,7 +10,8 @@ const KEYCLOAK = "http://localhost:8081/realms/wellness-local/protocol/openid-co
 const CLIENT_ID = "wellness-asha-web";
 const REDIRECT_URI = location.origin + "/asha/";
 
-const CONSENT_FORM = { form_id: "asha-wellness-consent", form_version: "0.1.0" };
+// 0.2.0 also asks, separately, about sharing a referral with a partner programme (ADR-015).
+const CONSENT_FORM = { form_id: "asha-wellness-consent", form_version: "0.2.0" };
 const INSTRUMENT = { instrument_id: "illustrative-wellness", instrument_version: "0.1.0" };
 const CATALOGUE = { catalogue_id: "asha-observations", catalogue_version: "0.1.0" };
 
@@ -290,7 +291,7 @@ function newVisit() {
       qr: randomId("qr") },
     name: "", village: "", age: "", gender: "NOT_STATED",
     consent: "", method: "VERBAL_WITNESSED", readAloud: false, understood: false, witness: false, adult: false,
-    consentAt: null,
+    sharing: "", consentAt: null,
     health: [], anxiety: "", sadness: "", interest: "", tobacco: "NOT_REPORTED", alcohol: "NOT_REPORTED", sleep: "",
     lifestyleAt: null, safety: "", safetyAt: null, followup: true,
   };
@@ -313,7 +314,8 @@ function operations(v, savedAt) {
     { what: "consent", method: "POST", path: "/v1/consent-events", key: crypto.randomUUID(), body: {
       consent_event_id: v.ids.consent, participant_ref: v.ids.participant,
       consent_form: { ...CONSENT_FORM, language_tag: tag },
-      scope_decisions: [{ scope: "SCREENING_PARTICIPATION", granted: true }],
+      scope_decisions: [{ scope: "SCREENING_PARTICIPATION", granted: true },
+        { scope: "EXTERNAL_REFERRAL_SHARING", granted: v.sharing === "yes" }],
       capture: { captured_at_utc: v.consentAt, method: v.method, read_aloud: v.readAloud, comprehension_confirmed: true,
         witness_present: v.witness },
       safeguards: { adult_confirmed: v.adult } } },
@@ -492,6 +494,10 @@ const screens = {
         checkbox("A witness was present", visit.witness, (v) => { visit.witness = v; }),
         checkbox("The person confirmed they are 18 or older", visit.adult, (v) => { visit.adult = v; }));
       nodes.push(field("How was consent recorded?", select(CONSENT_METHOD, visit.method, (v) => { visit.method = v; })), box);
+      nodes.push(field("If a clinician recommends it, may a referral be shared with a national support programme "
+        + "(for example Tele-MANAS or eSanjeevani)? The referral carries no name or phone number; you would connect the "
+        + "person yourself, quoting a short code.", radios("sharing", [["yes", "Yes, the person agrees"],
+        ["no", "No, do not share"]], visit.sharing, (v) => { visit.sharing = v; })));
     }
     nodes.push(actions(button("Continue", () => {
       if (!visit.consent) return warn("Please record the person's choice.");
@@ -501,6 +507,7 @@ const screens = {
       }
       if (!visit.understood) return warn("Consent needs the person's confirmed understanding.");
       if (!visit.adult) return warn("Only adults can be assessed. Use an approved child pathway for people under 18.");
+      if (!visit.sharing) return warn("Please record the person's choice about sharing a referral.");
       if (visit.method === "VERBAL_WITNESSED" && !visit.witness) return warn("Verbal consent needs a witness.");
       visit.consentAt = isoNow();
       go("health");
@@ -559,8 +566,9 @@ const screens = {
       nodes.push(el("div", "Prompt human support: follow the approved safety protocol and promptly connect the person with a "
         + "trained health professional. If there is immediate danger, seek urgent local emergency help. Do not wait for sync.",
       "alert"));
-      nodes.push(el("div", "Test build: no approved local protocol or helpline is configured yet. Contact your supervisor "
-        + "now. The case will carry an urgent-review flag for human follow-up; this is not a risk score.", "alert"));
+      nodes.push(el("div", "Test build: no approved local safety protocol exists yet. Contact your supervisor now. The "
+        + "case will carry an urgent-review flag for human follow-up; this is not a risk score.", "alert"));
+      nodes.push(supportContacts());
     }
     nodes.push(actions(button("Review assessment →", () => {
       if (!visit.safety) return warn("Please record a response or prefer-not-to-answer.");
@@ -647,6 +655,7 @@ function listScreen(followUpsOnly) {
       meta.textContent = `${c.status} · ${t(labelOf(AGE, c.age_band)).text} · ${c.language_tag} · ${new Date(c.created_at_utc).toLocaleString()}`;
       li.append(head, meta);
       if (c.review && c.review.status !== "NOT_REQUIRED") li.append(reviewLine(c.review));
+      if (c.review && ["REFER", "URGENT_REFER"].includes(c.review.decision)) li.append(referralLines(c.case_id));
       ul.append(li);
     }
     nodes.push(ul);
@@ -665,6 +674,52 @@ function reviewLine(review) {
   const text = `Clinician: ${DECISION_TEXT[review.decision]} ${WITHIN_TEXT[review.follow_up_within]}`.trim();
   return raw("div", `${text} · ${new Date(review.reviewed_at_utc).toLocaleDateString()}`,
     review.decision === "URGENT_REFER" ? "review urgent" : "review");
+}
+
+// Programme support contacts (API 1.3). Loaded once after login so they are at hand offline.
+let contacts = [];
+async function loadContacts() {
+  try {
+    const r = await api("GET", "/v1/programme/support-contacts");
+    if (r.status === 200) contacts = r.data.contacts;
+  } catch (e) {
+    contacts = []; // offline at login: the alert still tells the worker to contact their supervisor
+  }
+}
+function supportContacts() {
+  const box = raw("div", null, "contacts");
+  if (!contacts.length) {
+    box.append(raw("p", "No support contacts loaded (offline at login?). Contact your supervisor.", "small"));
+    return box;
+  }
+  for (const c of contacts) {
+    const a = raw("a", `${c.service_name}: ${c.dial_number}`, "contact");
+    a.href = c.tel_uri;
+    const row = raw("div");
+    row.append(a);
+    if (c.hours) row.append(raw("span", ` · ${c.hours}`, "small"));
+    if (!c.verified) row.append(raw("span", "Pending clinical-lead verification", "badge"));
+    box.append(row);
+  }
+  return box;
+}
+
+// Partner referrals (API 1.3): the worker connects the person, quoting the handoff code (warm handoff).
+function referralLines(caseId) {
+  const box = raw("div", null, "referrals");
+  api("GET", `/v1/cases/${caseId}/referrals`).then((r) => {
+    if (r.status !== 200) return;
+    for (const ref of r.data.referrals) {
+      const dead = ref.status === "REVOKED" || ref.status === "DELIVERY_FAILED";
+      // A revoked or undelivered referral's code must not be quoted, so it isn't shown.
+      box.append(raw("div", `Referred to ${ref.partner_name} · ${ref.status.replace(/_/g, " ").toLowerCase()}`
+        + (dead ? "" : ` · code ${ref.handoff_code}`), dead ? "referral bad" : "referral"));
+    }
+    if (r.data.referrals.length) {
+      box.append(raw("div", "Quote the code when you call the programme with the person.", "small"));
+    }
+  }).catch(() => {});
+  return box;
 }
 
 async function openList(page) {
@@ -758,7 +813,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (visit || pendingCount()) e.preventDefault(); // unsynced data lives only in this page
   });
   completeLogin()
-    .then((loggedIn) => { ui.page = loggedIn ? "home" : "language"; })
+    .then((loggedIn) => { ui.page = loggedIn ? "home" : "language"; if (loggedIn) loadContacts(); })
     .catch((e) => { ui.page = "login"; ui.message = `Login failed: ${e.message}`; })
     .finally(render);
 });

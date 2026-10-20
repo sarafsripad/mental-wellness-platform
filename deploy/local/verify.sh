@@ -147,6 +147,17 @@ refuse "review dashboard client refuses the password grant" \
        curl -sf -d grant_type=password -d client_id=wellness-review-web \
        -d username=clinician.test1 -d password="$KEYCLOAK_TEST_USER_PASSWORD" "$TOKEN_URL"
 
+PARTNER=$(curl -sf -d grant_type=client_credentials -d client_id=partner-simulator \
+  -d client_secret="$PARTNER_SIMULATOR_CLIENT_SECRET" "$TOKEN_URL" | jwt_claims 2>/dev/null)
+check  "partner simulator gets PARTNER_SYSTEM"      has "$PARTNER" PARTNER_SYSTEM
+check  "partner token has scope partner:events"     has "$PARTNER" 'partner:events'
+refuse "partner token has no person-facing role"   has "$PARTNER" '(ASHA_WORKER|CLINICIAN|ADMIN)'
+
+echo "=== Partner simulator (SIMULATED only)"
+check  "simulator answers on 127.0.0.1:8090"       curl -sf http://127.0.0.1:8090/_simulator/health
+refuse "simulator refuses unsigned referrals" \
+       curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8090/tele-manas/referrals
+
 echo "=== Exposure"
 check  "published ports bind to 127.0.0.1 only"   localhost_only
 

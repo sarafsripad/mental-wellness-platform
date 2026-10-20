@@ -6,6 +6,14 @@ cd "$(dirname "$0")"
 
 [[ -f .env ]] || ./init-env.sh
 
+# Secrets added after first release (partner simulator, ADR-015): generate them into an older .env.
+for key in PARTNER_SIMULATOR_CLIENT_SECRET PARTNER_SIMULATOR_SIGNING_SECRET; do
+  if ! grep -qE "^${key}=.+" .env; then
+    echo "${key}=$(openssl rand -hex 32)" >> .env
+    echo "up: added ${key} to .env"
+  fi
+done
+
 missing=()
 while IFS= read -r line; do
   [[ "$line" =~ ^([A-Z0-9_]+)= ]] || continue

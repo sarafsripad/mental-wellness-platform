@@ -3,12 +3,15 @@ package org.mentalwellness.api.cases.internal;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import org.mentalwellness.api.audit.AuditEvent;
 import org.mentalwellness.api.audit.AuditLog;
 import org.mentalwellness.api.audit.AuditOutcome;
+import org.mentalwellness.api.cases.ReferralBasis;
+import org.mentalwellness.api.cases.ReviewedCases;
 import org.mentalwellness.api.consent.ConsentGate;
 import org.mentalwellness.api.consent.ConsentScope;
 import org.mentalwellness.api.shared.idempotency.IdempotencyService;
@@ -27,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
  * append-only; nothing here suggests or scores a decision.
  */
 @Service
-class ReviewService {
+class ReviewService implements ReviewedCases {
 
 	private static final Duration FUTURE_SKEW = Duration.ofMinutes(5);
 
@@ -102,6 +105,15 @@ class ReviewService {
 					this.audit.record(event(actor, "CLINICIAN_REVIEW_RECORDED", "review", request.reviewId()));
 					return view(this.repository.findReview(request.reviewId()).orElseThrow());
 				});
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Optional<ReferralBasis> find(String caseId) {
+		return this.repository.findCase(caseId)
+			.map(r -> new ReferralBasis(r.caseId(), r.participantRef(), r.consentEventId(), r.languageTag(), r.dataOrigin(),
+					r.urgentReviewFlag(), Boolean.TRUE.equals(r.followUpRequested()), r.reviewId(), r.reviewDecision(), r.reviewFollowUpWithin(), r.reviewedAt(),
+					r.needsReview() && consentActive(r)));
 	}
 
 	/** Flagged, and the participant's screening consent still in effect. Anything else is 404. */

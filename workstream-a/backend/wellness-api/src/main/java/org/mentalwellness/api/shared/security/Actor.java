@@ -18,6 +18,7 @@ public record Actor(String subject, Set<String> roles) {
 	public static final String CLINICIAN = "CLINICIAN";
 	public static final String ADMIN = "ADMIN";
 	public static final String PROCESSING_WORKER = "PROCESSING_WORKER";
+	public static final String PARTNER_SYSTEM = "PARTNER_SYSTEM";
 
 	public Actor {
 		roles = Set.copyOf(roles);

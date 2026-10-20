@@ -27,6 +27,10 @@
       {
         "name": "PROCESSING_WORKER",
         "description": "Service role for the audio-processing worker"
+      },
+      {
+        "name": "PARTNER_SYSTEM",
+        "description": "Service role for partner programme systems (SIMULATED partners only in this environment)"
       }
     ]
   },
@@ -208,6 +212,16 @@
         "display.on.consent.screen": "false"
       },
       "protocolMappers": []
+    },
+    {
+      "name": "partner:events",
+      "description": "Post referral status events (partner systems)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
     }
   ],
   "defaultDefaultClientScopes": [
@@ -271,6 +285,28 @@
         "processing:worker"
       ],
       "optionalClientScopes": []
+    },
+    {
+      "clientId": "partner-simulator",
+      "name": "LOCAL ONLY: SIMULATED partner programmes (client credentials)",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PARTNER_SIMULATOR_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "wellness-api-audience",
+        "partner:events"
+      ],
+      "optionalClientScopes": [],
+      "description": "deploy/local/partner-simulator. Stands in for partner systems in tests; not a real partner. Never create elsewhere."
     },
     {
       "clientId": "wellness-e2e",
@@ -482,6 +518,14 @@
       "serviceAccountClientId": "processing-worker",
       "realmRoles": [
         "PROCESSING_WORKER"
+      ]
+    },
+    {
+      "username": "service-account-partner-simulator",
+      "enabled": true,
+      "serviceAccountClientId": "partner-simulator",
+      "realmRoles": [
+        "PARTNER_SYSTEM"
       ]
     }
   ]

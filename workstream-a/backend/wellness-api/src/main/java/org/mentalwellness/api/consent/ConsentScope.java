@@ -15,7 +15,13 @@ public enum ConsentScope {
 	AUDIO_RETENTION(AUDIO_RECORDING),
 	RESEARCH_FEATURE_REUSE(AUDIO_RECORDING),
 	MODEL_TRAINING(RESEARCH_FEATURE_REUSE),
-	QUALITY_REVIEW(AUDIO_RECORDING);
+	QUALITY_REVIEW(AUDIO_RECORDING),
+	/** Sharing a pseudonymous referral with a named partner programme such as Tele-MANAS (ADR-015). */
+	EXTERNAL_REFERRAL_SHARING(SCREENING_PARTICIPATION);
+
+	/** The scopes the feature-record schema v2.0.0 knows; feature records list only these. */
+	public static final Set<ConsentScope> FEATURE_RECORD_SCOPES = EnumSet.of(SCREENING_PARTICIPATION, AUDIO_RECORDING,
+			AUDIO_RETENTION, RESEARCH_FEATURE_REUSE, MODEL_TRAINING, QUALITY_REVIEW);
 
 	private final ConsentScope requires;
 

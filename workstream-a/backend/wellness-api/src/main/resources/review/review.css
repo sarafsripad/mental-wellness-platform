@@ -38,6 +38,7 @@ tr.flag td{background:var(--danger-bg)}
 select{padding:9px;border:1px solid #cbd6e2;border-radius:9px;font:inherit;background:#fff;min-width:220px}
 .btn{border:0;border-radius:10px;background:var(--blue);color:#fff;font-weight:700;padding:10px 16px;cursor:pointer;font:inherit;margin-top:12px}
 .btn:disabled{opacity:.4;cursor:not-allowed}
+.contacts{display:grid;gap:6px;margin:6px 0 12px}.contacts a{font-weight:700;color:var(--danger)}
 .empty{color:var(--muted);padding:40px 10px;text-align:center}
 footer{max-width:1200px;margin:0 auto 24px;padding:0 14px;font-size:12px;color:var(--muted)}
 [hidden]{display:none!important}

@@ -54,9 +54,14 @@ class ConsentApiIntegrationTests {
 
 	// --- request builders ------------------------------------------------------------
 
+	/** The scopes screening-consent 0.1.0 offers (local seed). EXTERNAL_REFERRAL_SHARING is on asha-wellness-consent 0.2.0. */
+	static final List<ConsentScope> FORM_SCOPES = List.of(ConsentScope.SCREENING_PARTICIPATION, ConsentScope.AUDIO_RECORDING,
+			ConsentScope.AUDIO_RETENTION, ConsentScope.RESEARCH_FEATURE_REUSE, ConsentScope.MODEL_TRAINING,
+			ConsentScope.QUALITY_REVIEW);
+
 	static Map<String, Object> consentRequest(String eventId, String participant, Set<ConsentScope> granted) {
 		List<Map<String, Object>> decisions = new ArrayList<>();
-		for (ConsentScope s : ConsentScope.values()) {
+		for (ConsentScope s : FORM_SCOPES) {
 			decisions.add(Map.of("scope", s.name(), "granted", granted.contains(s)));
 		}
 		Map<String, Object> body = new LinkedHashMap<>();
@@ -71,7 +76,7 @@ class ConsentApiIntegrationTests {
 	}
 
 	static Set<ConsentScope> all() {
-		return Set.of(ConsentScope.values());
+		return Set.copyOf(FORM_SCOPES);
 	}
 
 	MvcResult create(TestTokens.Builder who, Map<String, Object> body, UUID key) throws Exception {

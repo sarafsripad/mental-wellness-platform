@@ -175,6 +175,14 @@ With the stack and API running, open **http://localhost:8080/asha/** and log in 
 
 Open **http://localhost:8080/review/** and log in as `clinician.test1` (same password). You'll see a queue of visits flagged by the safety question or by the worker, urgent first. Pick one to see its coded answers and history, then record a decision: no further action, monitor, refer, or urgent referral, with a timeframe. The ASHA worker sees it in **Follow-ups**. Names and villages are never shown. There's no free text and no score ([ADR-014](docs/architecture/architecture-decisions.md#adr-014-clinician-review-of-flagged-cases)).
 
+### Partner programmes (simulated only)
+
+There is no real connection to Tele-MANAS, eSanjeevani, ABDM or HMIS. Those need agreements first ([onboarding checklist](docs/integration/partner-onboarding.md), [ADR-015](docs/architecture/architecture-decisions.md#adr-015-partner-programme-integration-simulated-only)). Locally:
+- The ASHA urgent alert and the dashboard show the Tele-MANAS helpline (14416), marked as pending verification by the clinical lead.
+- After a REFER or URGENT_REFER decision, the dashboard can send a **pseudonymous** referral to a **SIMULATED** partner (`deploy/local/partner-simulator`, port 8090). The simulator acknowledges it and posts status updates back, and the ASHA worker sees the status and a handoff code in Follow-ups.
+- Referrals need the person's separate "sharing" consent. Withdrawing it revokes the referral at the partner.
+- `workstream-a/backend/wellness-api/run-hmis-report.sh [yyyy-MM]` writes a monthly aggregate report (counts only, 1–4 shown as `<5`) to `deploy/local/hmis-dropzone/`.
+
 ### End-to-end (vertical slice)
 
 With the local stack, the API and the worker running:

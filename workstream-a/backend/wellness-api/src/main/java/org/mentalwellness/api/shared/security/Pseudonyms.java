@@ -38,6 +38,14 @@ public class Pseudonyms {
 		return "clin_" + hmacHex("clinician:" + subject).substring(0, 32);
 	}
 
+	/**
+	 * {@code pk_} + 32 hex characters: the participant's pseudonym for one partner programme. Each
+	 * partner sees a different key, so partners can't link people between them or to platform IDs.
+	 */
+	public String partnerKey(String partnerId, String participantRef) {
+		return "pk_" + hmacHex("partner:" + partnerId + ":" + participantRef).substring(0, 32);
+	}
+
 	private String hmacHex(String value) {
 		try {
 			Mac mac = Mac.getInstance("HmacSHA256");

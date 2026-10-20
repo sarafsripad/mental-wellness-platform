@@ -20,7 +20,8 @@ class CaseRepository {
 			EXISTS (SELECT 1 FROM cases.questionnaire_response q WHERE q.case_id = c.case_id),
 			(SELECT r.decision FROM cases.case_review r WHERE r.case_id = c.case_id ORDER BY r.seq DESC LIMIT 1),
 			(SELECT r.follow_up_within FROM cases.case_review r WHERE r.case_id = c.case_id ORDER BY r.seq DESC LIMIT 1),
-			(SELECT r.reviewed_at FROM cases.case_review r WHERE r.case_id = c.case_id ORDER BY r.seq DESC LIMIT 1)
+			(SELECT r.reviewed_at FROM cases.case_review r WHERE r.case_id = c.case_id ORDER BY r.seq DESC LIMIT 1),
+			(SELECT r.review_id FROM cases.case_review r WHERE r.case_id = c.case_id ORDER BY r.seq DESC LIMIT 1)
 			""";
 
 	private static final String REVIEW_SELECT = """
@@ -36,7 +37,8 @@ class CaseRepository {
 	record CaseRow(String caseId, String participantRef, String consentEventId, String languageTag, String dataOrigin,
 			String ageBand, String gender, Instant openedAt, String openedBySubject, boolean urgentReviewFlag,
 			Boolean followUpRequested, Instant completedAt, Instant createdAt, boolean observationsSubmitted,
-			boolean questionnaireSubmitted, String reviewDecision, String reviewFollowUpWithin, Instant reviewedAt) {
+			boolean questionnaireSubmitted, String reviewDecision, String reviewFollowUpWithin, Instant reviewedAt,
+			String reviewId) {
 
 		boolean completed() {
 			return this.completedAt != null;
@@ -223,7 +225,7 @@ class CaseRepository {
 		return new CaseRow(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5),
 				rs.getString(6), rs.getString(7), instant(rs, 8), rs.getString(9), rs.getBoolean(10),
 				followUpNull ? null : rs.getBoolean(11), instant(rs, 12), instant(rs, 13), rs.getBoolean(14),
-				rs.getBoolean(15), rs.getString(16), rs.getString(17), instant(rs, 18));
+				rs.getBoolean(15), rs.getString(16), rs.getString(17), instant(rs, 18), rs.getString(19));
 	}
 
 	private static ReviewRow reviewRow(ResultSet rs, int n) throws SQLException {

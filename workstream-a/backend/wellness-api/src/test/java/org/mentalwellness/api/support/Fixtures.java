@@ -81,6 +81,16 @@ public final class Fixtures {
 		return body;
 	}
 
+	/** Consent on ASHA form 0.2.0, which also asks about sharing a referral with a partner (ADR-015). */
+	public static Map<String, Object> ashaConsentWithSharing(String eventId, String participant, Instant capturedAt,
+			boolean sharing) {
+		Map<String, Object> body = ashaConsent(eventId, participant, "kn-IN", capturedAt);
+		body.put("consent_form", Map.of("form_id", "asha-wellness-consent", "form_version", "0.2.0", "language_tag", "kn-IN"));
+		body.put("scope_decisions", List.of(Map.of("scope", "SCREENING_PARTICIPATION", "granted", true),
+				Map.of("scope", "EXTERNAL_REFERRAL_SHARING", "granted", sharing)));
+		return body;
+	}
+
 	public static Map<String, Object> caseCreate(String caseId, String participant, String eventId, Instant openedAt) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("case_id", caseId);

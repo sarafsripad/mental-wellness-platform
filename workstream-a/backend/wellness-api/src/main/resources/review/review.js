@@ -48,7 +48,7 @@ const WITHIN = { NONE: "No follow-up", WITHIN_24_HOURS: "Within 24 hours", WITHI
 const DECISION = Object.fromEntries(DECISIONS);
 
 const auth = { token: null, refresh: null, claims: null };
-const ui = { filter: "AWAITING_REVIEW", items: [], selected: null, detail: null, message: null };
+const ui = { filter: "AWAITING_REVIEW", items: [], selected: null, detail: null, message: null, referrals: [] };
 const $ = (id) => document.getElementById(id);
 
 // --- helpers -------------------------------------------------------------------------
@@ -193,6 +193,8 @@ async function select(caseId, message = null) {
     return;
   }
   ui.detail = r.data;
+  const refs = await api("GET", `/v1/cases/${caseId}/referrals`);
+  ui.referrals = refs.status === 200 ? refs.data.referrals : [];
   renderDetail();
 }
 
@@ -204,8 +206,9 @@ function renderDetail() {
   if (ui.message) nodes.push(el("div", ui.message.text, ui.message.cls));
   if (d.priority === "URGENT") {
     nodes.push(el("div", "Urgent-review flag: the safety question was answered 'sometimes' or 'often'. Follow the approved "
-      + "safety protocol and make sure the person has been connected to trained human support. (Test build: no protocol, "
-      + "helpline or referral pathway is configured yet.)", "alert"));
+      + "safety protocol and make sure the person has been connected to trained human support. (Test build: no approved "
+      + "urgent-risk protocol exists yet, and partner referrals go to SIMULATED partners only.)", "alert"));
+    nodes.push(contactList());
   }
 
   const facts = el("dl", null, "facts");
@@ -272,8 +275,61 @@ function renderDetail() {
     nodes.push(el("p", "A new decision supersedes the latest one; earlier decisions are kept.", "small"));
   }
 
+  if (["REFER", "URGENT_REFER"].includes(c.review.decision)) nodes.push(...referralSection(c, d.reviews[d.reviews.length - 1]));
   nodes.push(el("h3", d.reviews.length ? "Record a new decision" : "Record your decision"), decisionForm(c.case_id));
   box.replaceChildren(...nodes);
+}
+
+// --- partner referrals (API 1.3, ADR-015) ---------------------------------------------
+
+let partners = [];
+async function loadPartners() {
+  const r = await api("GET", "/v1/integration/partners");
+  if (r.status === 200) partners = r.data.partners;
+}
+
+function referralSection(c, latest) {
+  const nodes = [el("h3", "Referral to a partner programme")];
+  nodes.push(el("p", "Sends a pseudonymous referral (no name, contact details or answers) with a handoff code. The ASHA "
+    + "worker connects the person, quoting the code. Needs the person's consent to sharing.", "small"));
+  if (ui.referrals.length) {
+    const table = el("table");
+    const head = el("tr");
+    head.append(el("th", "Partner"), el("th", "Status"), el("th", "Handoff code"), el("th", "Since"));
+    table.append(head);
+    for (const r of ui.referrals) {
+      const tr = el("tr");
+      tr.append(el("td", r.partner_name), el("td", r.status.replace(/_/g, " ").toLowerCase()), el("td", r.handoff_code, "code"),
+        el("td", when(r.status_at_utc)));
+      table.append(tr);
+    }
+    nodes.push(table);
+  }
+  const live = new Set(ui.referrals.filter((r) => !["CLOSED", "DECLINED", "DELIVERY_FAILED", "REVOKED"].includes(r.status))
+    .map((r) => r.partner_id));
+  const box = el("div", null, "options");
+  for (const p of partners) {
+    const b = el("button", `Send to ${p.partner_label}`, "btn");
+    b.type = "button";
+    b.disabled = live.has(p.partner_id);
+    const key = crypto.randomUUID();
+    const referralId = randomId("ref");
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      const r = await api("POST", `/v1/review-queue/${c.case_id}/referrals`, { referral_id: referralId,
+        partner_id: p.partner_id, review_id: latest.review_id, __key: key });
+      const msg = r.status === 201 || r.status === 200
+        ? { text: `Referral queued for ${p.partner_label}. Handoff code ${r.data.handoff_code}.`, cls: "ok" }
+        : { text: r.data && r.data.code === "CONSENT_NOT_ACTIVE"
+          ? "Not sent: the person did not consent to sharing a referral with partner programmes."
+          : `Not sent (${r.data && r.data.code || r.status}).`, cls: "alert" };
+      await select(c.case_id, msg);
+    });
+    box.append(b);
+  }
+  if (!partners.length) nodes.push(el("p", "No partner programme is enabled in this environment.", "small"));
+  nodes.push(box);
+  return nodes;
 }
 
 function decisionForm(caseId) {
@@ -327,6 +383,28 @@ function decisionForm(caseId) {
   return form;
 }
 
+// --- support contacts (API 1.3) --------------------------------------------------------
+
+let contacts = [];
+async function loadContacts() {
+  const r = await api("GET", "/v1/programme/support-contacts");
+  if (r.status === 200) contacts = r.data.contacts;
+}
+function contactList() {
+  const box = el("div", null, "contacts");
+  box.append(el("div", "Support contacts", "small"));
+  for (const c of contacts) {
+    const row = el("div");
+    const a = el("a", `${c.service_name}: ${c.dial_number}`);
+    a.href = c.tel_uri;
+    row.append(a);
+    if (c.hours) row.append(el("span", ` · ${c.hours}`, "small"));
+    if (!c.verified) row.append(el("span", "Pending clinical-lead verification", "badge"));
+    box.append(row);
+  }
+  return box;
+}
+
 // --- wiring --------------------------------------------------------------------------
 
 function renderAuth() {
@@ -352,5 +430,5 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   completeLogin()
     .catch((e) => { $("who").textContent = `Login failed: ${e.message}`; return false; })
-    .then(() => { renderAuth(); if (isClinician()) loadQueue(); });
+    .then(() => { renderAuth(); if (isClinician()) { loadQueue(); loadContacts(); loadPartners(); } });
 });

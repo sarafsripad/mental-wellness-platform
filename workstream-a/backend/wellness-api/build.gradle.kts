@@ -68,6 +68,12 @@ tasks.processResources {
 	from(rootProject.projectDir.resolve("../../../contracts/research-export/export-manifest.schema.json")) {
 		into("contracts")
 	}
+	from(rootProject.projectDir.resolve("../../../contracts/integration/referral-bundle.schema.json")) {
+		into("contracts")
+	}
+	from(rootProject.projectDir.resolve("../../../contracts/integration/hmis-aggregate-report.schema.json")) {
+		into("contracts")
+	}
 }
 
 tasks.withType<Test> {

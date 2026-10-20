@@ -19,10 +19,16 @@ def _walk(node):
             yield from _walk(value)
 
 
+# Scopes that never appear in feature records: they don't govern audio or features (ADR-015).
+# Feature records list only the scopes of feature-record v2.0.0 (ConsentScope.FEATURE_RECORD_SCOPES).
+NON_FEATURE_SCOPES = {"EXTERNAL_REFERRAL_SHARING"}
+
+
 def test_consent_scopes_identical(feature_schema, openapi_docs):
     feature_scopes = feature_schema["$defs"]["consentScope"]["enum"]
     api_scopes = openapi_docs[PUBLIC_V1]["components"]["schemas"]["ConsentScope"]["enum"]
-    assert feature_scopes == api_scopes
+    assert feature_scopes == [s for s in api_scopes if s not in NON_FEATURE_SCOPES]
+    assert NON_FEATURE_SCOPES <= set(api_scopes)
 
 
 @pytest.mark.parametrize("prefix", ["sess_", "rec_", "job_", "ce_", "frec_", "ppt_", "cw_"])

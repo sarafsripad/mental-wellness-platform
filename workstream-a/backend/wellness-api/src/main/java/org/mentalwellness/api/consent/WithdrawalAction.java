@@ -12,7 +12,8 @@ import java.util.Set;
 public interface WithdrawalAction {
 
 	enum Type {
-		CANCEL_QUEUED_PROCESSING, EXCLUDE_FROM_RESEARCH_EXPORT, DELETE_RETAINED_AUDIO, FLAG_DERIVED_FEATURES
+		CANCEL_QUEUED_PROCESSING, EXCLUDE_FROM_RESEARCH_EXPORT, DELETE_RETAINED_AUDIO, FLAG_DERIVED_FEATURES,
+		REVOKE_EXTERNAL_REFERRAL
 	}
 
 	enum Status {
@@ -37,6 +38,9 @@ public interface WithdrawalAction {
 		}
 		if (withdrawn.contains(ConsentScope.RESEARCH_FEATURE_REUSE) || withdrawn.contains(ConsentScope.MODEL_TRAINING)) {
 			types.add(Type.EXCLUDE_FROM_RESEARCH_EXPORT);
+		}
+		if (withdrawn.contains(ConsentScope.EXTERNAL_REFERRAL_SHARING)) {
+			types.add(Type.REVOKE_EXTERNAL_REFERRAL);
 		}
 		return types;
 	}

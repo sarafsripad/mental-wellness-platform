@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Mental Wellness Platform — Wellness API
-  version: 1.2.0-draft.1
-  summary: Public API — consent, voice sessions, recordings, audio-processing jobs, ASHA assessment cases and clinician review.
+  version: 1.3.0-draft.1
+  summary: Public API — consent, voice sessions, recordings, audio-processing jobs, ASHA assessment cases, clinician review, programme support contacts and partner referrals.
   description: |
     Public API of the wellness backend (a Spring Boot modular monolith, Java 21) used by the
     React Native app and, later, the clinician web app.
@@ -71,6 +71,13 @@ tags:
       ASHA assessment visits (1.1, promoted from wellness-api-provisional.v0.yaml). A case holds
       coded answers only: age band, gender, health and lifestyle observations, questionnaire
       answers and the worker's follow-up decision. No free text (consent-and-data-lifecycle.md §8).
+  - name: programme
+    description: Programme reference data with no participant data, such as verified support contacts (ADR-015).
+  - name: referrals
+    description: |
+      Pseudonymous referrals to partner programmes (1.3, ADR-015). Only SIMULATED partners exist:
+      no real Tele-MANAS, eSanjeevani, ABDM or HMIS connection is configured or claimed. A clinician
+      sends each referral explicitly; it carries a handoff code, never a name or contact detail.
   - name: review
     description: |
       Clinician review of flagged cases (1.2, ADR-014; promoted from the provisional
@@ -915,6 +922,147 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /v1/programme/support-contacts:
+    get:
+      tags: [programme]
+      operationId: listSupportContacts
+      summary: Helplines and support contacts for urgent situations
+      description: |
+        Programme configuration, shown with urgent-review alerts (for example Tele-MANAS, 14416).
+        The clinical lead must verify each contact for the programme area; `verified: false`
+        contacts must be shown labelled as pending verification. Calling a number is the worker's
+        action, and no data is sent to the contact.
+      security:
+        - oidc: [cases:read]
+        - oidc: [review:read]
+      x-roles: [ASHA_WORKER, CLINICIAN]
+      x-data-access: No participant data.
+      x-consent-prerequisite: none (no participant data)
+      x-audit-events: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The contacts, in configuration order.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupportContactList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/integration/partners:
+    get:
+      tags: [referrals]
+      operationId: listReferralPartners
+      summary: Partner programmes that can receive referrals here
+      description: Enabled partners only. `mode` is SIMULATED for every partner in this release.
+      security:
+        - oidc: [review:read]
+      x-roles: [CLINICIAN]
+      x-data-access: No participant data.
+      x-consent-prerequisite: none (no participant data)
+      x-audit-events: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Partners.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PartnerList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/review-queue/{caseId}/referrals:
+    post:
+      tags: [referrals]
+      operationId: createReferral
+      summary: Send a referral to a partner programme
+      description: |
+        The clinician's explicit action; nothing is sent automatically. The case's latest review
+        (`review_id`) must be REFER or URGENT_REFER (otherwise 409), the participant must have
+        EXTERNAL_REFERRAL_SHARING in effect (otherwise 422 CONSENT_NOT_ACTIVE), and the partner must
+        be enabled (otherwise 422 PARTNER_NOT_ENABLED). One live referral per case and partner. The
+        referral is queued in an outbox and delivered asynchronously
+        (contracts/integration/referral-bundle.schema.json). The ASHA worker quotes the
+        `handoff_code` when connecting the person to the partner.
+      security:
+        - oidc: [review:write]
+      x-roles: [CLINICIAN]
+      x-data-access: Cases eligible for review only.
+      x-consent-prerequisite: SCREENING_PARTICIPATION and EXTERNAL_REFERRAL_SHARING in effect on the case's consent event.
+      x-audit-events: [REFERRAL_CREATED, REFERRAL_REJECTED, REFERRAL_DELIVERED, REFERRAL_DELIVERY_FAILED]
+      x-idempotency: referral_id plus Idempotency-Key.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CaseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferralCreate' }
+      responses:
+        '201':
+          description: Referral queued.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Referral' }
+              examples:
+                queued: { $ref: '#/components/examples/ReferralExample' }
+        '200':
+          description: Idempotent replay.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Referral' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/cases/{caseId}/referrals:
+    get:
+      tags: [referrals]
+      operationId: listCaseReferrals
+      summary: Referrals of a case and their partner status
+      description: For the assigned ASHA worker (who connects the person, quoting the handoff code) and for clinicians while the case is eligible for review.
+      security:
+        - oidc: [cases:read]
+        - oidc: [review:read]
+      x-roles: [ASHA_WORKER, CLINICIAN]
+      x-data-access: ASHA_WORKER for assigned participants; CLINICIAN for cases eligible for review.
+      x-consent-prerequisite: none (status of referrals already made)
+      x-audit-events: [REFERRAL_LIST_READ]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/CaseId'
+      responses:
+        '200':
+          description: Referrals, oldest first.
+          headers:
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferralList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
 components:
   securitySchemes:
     oidc:
@@ -1082,7 +1230,7 @@ components:
 
     ConsentScope:
       type: string
-      description: Approved for implementation with synthetic data (2026-10-18); privacy/legal review pending. Definitions are in docs/privacy/consent-and-data-lifecycle.md.
+      description: Approved for implementation with synthetic data (2026-10-18; EXTERNAL_REFERRAL_SHARING added by the repository owner 2026-10-20); privacy/legal review pending. Definitions are in docs/privacy/consent-and-data-lifecycle.md.
       enum:
         - SCREENING_PARTICIPATION
         - AUDIO_RECORDING
@@ -1090,6 +1238,7 @@ components:
         - RESEARCH_FEATURE_REUSE
         - MODEL_TRAINING
         - QUALITY_REVIEW
+        - EXTERNAL_REFERRAL_SHARING
 
     ScopeDecision:
       type: object
@@ -1119,14 +1268,15 @@ components:
         scope_decisions:
           type: array
           minItems: 1
-          maxItems: 6
+          maxItems: 7
           uniqueItems: true
           items: { $ref: '#/components/schemas/ScopeDecision' }
           description: |
             Server rejects (422 CONSENT_SCOPE_INCOMPLETE) if a scope offered by the form version is
             missing, or a scope is granted without the scopes it depends on. Dependency graph:
             AUDIO_RECORDING → SCREENING_PARTICIPATION; AUDIO_RETENTION, RESEARCH_FEATURE_REUSE and
-            QUALITY_REVIEW → AUDIO_RECORDING; MODEL_TRAINING → RESEARCH_FEATURE_REUSE.
+            QUALITY_REVIEW → AUDIO_RECORDING; MODEL_TRAINING → RESEARCH_FEATURE_REUSE;
+            EXTERNAL_REFERRAL_SHARING → SCREENING_PARTICIPATION (1.3, ADR-015).
         capture:
           type: object
           required: [captured_at_utc, method, read_aloud, comprehension_confirmed]
@@ -1208,7 +1358,8 @@ components:
           description: |
             Scopes to withdraw. Omit to withdraw all scopes. Withdrawal cascades transitively to
             every dependent scope (see the dependency graph on ConsentEventCreate.scope_decisions):
-            SCREENING_PARTICIPATION withdraws everything; AUDIO_RECORDING also withdraws
+            SCREENING_PARTICIPATION withdraws everything (including EXTERNAL_REFERRAL_SHARING, which
+            revokes partner referrals); AUDIO_RECORDING also withdraws
             AUDIO_RETENTION, RESEARCH_FEATURE_REUSE, MODEL_TRAINING and QUALITY_REVIEW;
             RESEARCH_FEATURE_REUSE also withdraws MODEL_TRAINING. `withdrawn_scopes` in the
             response lists the full cascaded set.
@@ -1244,7 +1395,7 @@ components:
             properties:
               action:
                 type: string
-                enum: [CANCEL_QUEUED_PROCESSING, EXCLUDE_FROM_RESEARCH_EXPORT, DELETE_RETAINED_AUDIO, FLAG_DERIVED_FEATURES]
+                enum: [CANCEL_QUEUED_PROCESSING, EXCLUDE_FROM_RESEARCH_EXPORT, DELETE_RETAINED_AUDIO, FLAG_DERIVED_FEATURES, REVOKE_EXTERNAL_REFERRAL]
               status:
                 type: string
                 enum: [SCHEDULED, COMPLETED, NOT_APPLICABLE]
@@ -1707,6 +1858,86 @@ components:
         reviewed_at_utc: { $ref: '#/components/schemas/Timestamp' }
         recorded_at_utc: { $ref: '#/components/schemas/Timestamp' }
 
+    SupportContactList:
+      type: object
+      required: [contacts]
+      additionalProperties: false
+      properties:
+        contacts:
+          type: array
+          items:
+            type: object
+            required: [contact_id, service_name, dial_number, tel_uri, hours, coverage, verified, verified_by, verified_on]
+            additionalProperties: false
+            properties:
+              contact_id: { type: string, pattern: '^[a-z0-9-]{2,40}$' }
+              service_name: { type: string, maxLength: 80 }
+              dial_number: { type: string, pattern: '^\+?[0-9][0-9 -]{2,19}$' }
+              tel_uri: { type: string, pattern: '^tel:\+?[0-9]{3,20}$' }
+              hours: { type: [string, 'null'] }
+              coverage: { type: string, enum: [NATIONAL, STATE, DISTRICT] }
+              verified:
+                type: boolean
+                description: False until the clinical lead verifies the contact for the programme area.
+              verified_by: { type: [string, 'null'] }
+              verified_on: { type: [string, 'null'], format: date }
+
+    ReferralStatus:
+      type: string
+      enum: [QUEUED, SENT, RECEIVED, CONTACT_ATTEMPTED, CONTACTED, APPOINTMENT_BOOKED, CLOSED, DECLINED, DELIVERY_FAILED, REVOKED]
+      description: QUEUED until delivered, SENT once the partner accepted it, then the partner's own coded statuses. REVOKED after consent withdrawal.
+    PartnerList:
+      type: object
+      required: [partners]
+      additionalProperties: false
+      properties:
+        partners:
+          type: array
+          items:
+            type: object
+            required: [partner_id, partner_label, kind, mode]
+            additionalProperties: false
+            properties:
+              partner_id: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
+              partner_label: { type: string }
+              kind: { type: string, enum: [TELE_MANAS, ESANJEEVANI, ABDM, HMIS] }
+              mode: { type: string, enum: [SIMULATED, REAL] }
+    ReferralCreate:
+      type: object
+      required: [referral_id, partner_id, review_id]
+      additionalProperties: false
+      properties:
+        referral_id: { type: string, pattern: '^ref_[a-f0-9]{32}$' }
+        partner_id: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
+        review_id: { type: string, pattern: '^rvw_[a-f0-9]{32}$' }
+    Referral:
+      type: object
+      required: [referral_id, case_id, partner_id, partner_name, partner_mode, decision, follow_up_within, handoff_code, status, status_at_utc, created_at_utc]
+      additionalProperties: false
+      properties:
+        referral_id: { type: string, pattern: '^ref_[a-f0-9]{32}$' }
+        case_id: { $ref: '#/components/schemas/CaseId' }
+        partner_id: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
+        partner_name: { type: string }
+        partner_mode: { type: string, enum: [SIMULATED, REAL, UNKNOWN] }
+        decision: { type: string, enum: [REFER, URGENT_REFER] }
+        follow_up_within: { type: string, enum: [WITHIN_24_HOURS, WITHIN_7_DAYS, WITHIN_30_DAYS] }
+        handoff_code:
+          type: string
+          pattern: '^[A-Z0-9]{8}$'
+          description: Quoted by the ASHA worker when connecting the person to the partner (warm handoff). Not an identifier of the person.
+        status: { $ref: '#/components/schemas/ReferralStatus' }
+        status_at_utc: { $ref: '#/components/schemas/Timestamp' }
+        created_at_utc: { $ref: '#/components/schemas/Timestamp' }
+    ReferralList:
+      type: object
+      required: [referrals]
+      additionalProperties: false
+      properties:
+        referrals:
+          type: array
+          items: { $ref: '#/components/schemas/Referral' }
+
     Problem:
       type: object
       description: RFC 9457 problem details. `detail` is a fixed, non-identifying message. `errors` gives field paths and rules, never values.
@@ -1734,6 +1965,7 @@ components:
             - DATA_ORIGIN_NOT_PERMITTED
             - CHECKSUM_MISMATCH
             - RECORDING_NOT_UPLOADED
+            - PARTNER_NOT_ENABLED
             - PAYLOAD_TOO_LARGE
             - UNSUPPORTED_MEDIA_TYPE
             - RATE_LIMITED
@@ -1985,6 +2217,19 @@ components:
         decision: REFER
         follow_up_within: WITHIN_7_DAYS
         reviewed_at_utc: '2026-10-18T13:02:00Z'
+    ReferralExample:
+      value:
+        referral_id: ref_00000000000000000000000000000001
+        case_id: case_00000000000000000000000000000001
+        partner_id: sim-tele-manas
+        partner_name: Tele-MANAS (SIMULATED)
+        partner_mode: SIMULATED
+        decision: URGENT_REFER
+        follow_up_within: WITHIN_24_HOURS
+        handoff_code: K7QP2MXA
+        status: QUEUED
+        status_at_utc: '2026-10-20T10:02:00Z'
+        created_at_utc: '2026-10-20T10:02:00Z'
     ProblemValidationExample:
       value:
         type: https://mental-wellness-platform/problems/validation-failed

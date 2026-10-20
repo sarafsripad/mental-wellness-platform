@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mental-wellness-platform/contracts/integration/hmis-aggregate-report/v1.0.0",
+  "title": "HmisAggregateReport",
+  "description": "Monthly programme counts for State HMIS / NHM reporting (ADR-015). Aggregate only: no identifiers, no dates finer than the month, no locality (the platform holds none). Counts from 1 to 4 are replaced by the string \"<5\" (small-cell suppression). The real HMIS format is not known: this is the platform's own neutral format, to be mapped to the programme's specification once one is provided. Produced only by a person running run-hmis-report.sh.",
+  "version": "1.0.0",
+  "x-governance": {
+    "direct_identifiers_prohibited": true,
+    "aggregate_only": true,
+    "suppression_threshold": 5
+  },
+  "type": "object",
+  "required": ["report_id", "report_version", "period", "generated_at_utc", "data_origin", "suppression", "visits_by_group", "referrals"],
+  "additionalProperties": false,
+  "properties": {
+    "report_id": { "type": "string", "pattern": "^hmis_[a-f0-9]{32}$" },
+    "report_version": { "const": "1.0.0" },
+    "period": {
+      "type": "object", "required": ["month"], "additionalProperties": false,
+      "properties": { "month": { "type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$" } }
+    },
+    "generated_at_utc": { "type": "string", "format": "date-time" },
+    "data_origin": { "enum": ["SYNTHETIC", "PARTICIPANT"] },
+    "suppression": {
+      "type": "object", "required": ["threshold", "marker"], "additionalProperties": false,
+      "properties": { "threshold": { "const": 5 }, "marker": { "const": "<5" } }
+    },
+    "visits_by_group": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["age_band", "gender", "visits", "urgent_review_flags", "follow_up_requests", "clinician_reviewed"],
+        "additionalProperties": false,
+        "properties": {
+          "age_band": { "enum": ["AGE_18_29", "AGE_30_44", "AGE_45_59", "AGE_60_PLUS"] },
+          "gender": { "enum": ["NOT_STATED", "FEMALE", "MALE", "OTHER"] },
+          "visits": { "$ref": "#/$defs/count" },
+          "urgent_review_flags": { "$ref": "#/$defs/count" },
+          "follow_up_requests": { "$ref": "#/$defs/count" },
+          "clinician_reviewed": { "$ref": "#/$defs/count" }
+        }
+      }
+    },
+    "referrals": {
+      "type": "object",
+      "required": ["created", "delivered", "contact_made", "revoked"],
+      "additionalProperties": false,
+      "properties": {
+        "created": { "$ref": "#/$defs/count" },
+        "delivered": { "$ref": "#/$defs/count" },
+        "contact_made": { "$ref": "#/$defs/count" },
+        "revoked": { "$ref": "#/$defs/count" }
+      }
+    }
+  },
+  "$defs": {
+    "count": {
+      "oneOf": [
+        { "type": "integer", "const": 0 },
+        { "type": "integer", "minimum": 5 },
+        { "const": "<5" }
+      ]
+    }
+  }
+}

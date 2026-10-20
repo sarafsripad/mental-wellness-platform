@@ -43,6 +43,14 @@ export WELLNESS_DEV_CONSOLE_ENABLED=true
 export WELLNESS_ASHA_APP_ENABLED=true
 # Local only: serve the clinician review dashboard at http://localhost:8080/review/
 export WELLNESS_REVIEW_APP_ENABLED=true
+# Local only: SIMULATED partner programmes (deploy/local/partner-simulator) and the outbox dispatcher.
+PARTNER_SIM_SIGNING_SECRET="$(grep -E '^PARTNER_SIMULATOR_SIGNING_SECRET=' "$ENV_FILE" | cut -d= -f2-)"
+if [[ -n "$PARTNER_SIM_SIGNING_SECRET" ]]; then
+  export WELLNESS_PARTNER_SIM_ENABLED=true WELLNESS_INTEGRATION_DISPATCH_ENABLED=true
+  export WELLNESS_PARTNER_SIM_SIGNING_SECRET="$PARTNER_SIM_SIGNING_SECRET"
+else
+  echo "run-local: PARTNER_SIMULATOR_SIGNING_SECRET missing in $ENV_FILE; simulated partners stay off (run deploy/local/up.sh)"
+fi
 echo "run-local: test console at http://localhost:8080/dev-console/ (once started)"
 echo "run-local: ASHA Care app at http://localhost:8080/asha/ (once started)"
 echo "run-local: clinician review dashboard at http://localhost:8080/review/ (once started)"

@@ -41,7 +41,7 @@ final class ConsentApi {
 			@NotNull @Pattern(regexp = CONSENT_EVENT_ID) String consentEventId,
 			@NotNull @Pattern(regexp = PARTICIPANT_REF) String participantRef,
 			@NotNull @Valid ConsentForm consentForm,
-			@NotEmpty @Size(max = 6) List<@NotNull @Valid ScopeDecision> scopeDecisions,
+			@NotEmpty @Size(max = 7) List<@NotNull @Valid ScopeDecision> scopeDecisions,
 			@NotNull @Valid Capture capture,
 			@NotNull @Valid Safeguards safeguards) {
 	}
@@ -73,7 +73,7 @@ final class ConsentApi {
 	@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 	record ConsentWithdrawalCreate(
 			@NotNull @Pattern(regexp = WITHDRAWAL_ID) String withdrawalId,
-			@Size(min = 1, max = 6) Set<@NotNull ConsentScope> scopes,
+			@Size(min = 1, max = 7) Set<@NotNull ConsentScope> scopes,
 			@NotNull Instant withdrawnAtUtc,
 			@NotNull Channel channel,
 			ReasonCode reasonCode) {

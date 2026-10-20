@@ -97,6 +97,7 @@ services:
       KEYCLOAK_TEST_USER_PASSWORD: ${KEYCLOAK_TEST_USER_PASSWORD}
       PROCESSING_WORKER_CLIENT_SECRET: ${PROCESSING_WORKER_CLIENT_SECRET}
       E2E_CLIENT_SECRET: ${E2E_CLIENT_SECRET}
+      PARTNER_SIMULATOR_CLIENT_SECRET: ${PARTNER_SIMULATOR_CLIENT_SECRET}
     volumes:
       - ./keycloak:/opt/keycloak/data/import:ro
     ports:
@@ -107,6 +108,25 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
+    networks: [auth]
+
+  # SIMULATED partner programmes (ADR-015): stands in for Tele-MANAS, eSanjeevani and HMIS endpoints in
+  # tests. Not a real partner and never contacts one. Reaches the API on the host for status events.
+  partner-simulator:
+    image: python:3.12.14-slim-bookworm
+    command: ["python", "/sim/simulator.py"]
+    environment:
+      SIMULATOR_SIGNING_SECRET: ${PARTNER_SIMULATOR_SIGNING_SECRET}
+      SIMULATOR_CLIENT_SECRET: ${PARTNER_SIMULATOR_CLIENT_SECRET}
+      SIMULATOR_TOKEN_URL: http://keycloak:8081/realms/wellness-local/protocol/openid-connect/token
+      SIMULATOR_API_URL: http://host.docker.internal:8080
+    volumes:
+      - ./partner-simulator:/sim:ro
+    ports:
+      - "127.0.0.1:8090:8090"
+    depends_on:
+      keycloak:
+        condition: service_healthy
     networks: [auth]
 
 networks:

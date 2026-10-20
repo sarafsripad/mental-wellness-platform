@@ -8,3 +8,4 @@ deploy/local/.env
 
 # Research exports written locally by run-export.sh (synthetic data, still not for git)
 deploy/local/research-dropzone/
+deploy/local/hmis-dropzone/

@@ -55,6 +55,7 @@ public final class TestTokens {
 		private String scope = "";
 		private Instant expiresAt = Instant.now().plusSeconds(300);
 		private RSAKey key = SIGNING_KEY;
+		private String authorizedParty;
 
 		public Builder subject(String subject) { this.subject = subject; return this; }
 		public Builder issuer(String issuer) { this.issuer = issuer; return this; }
@@ -63,20 +64,25 @@ public final class TestTokens {
 		public Builder scope(String scope) { this.scope = scope; return this; }
 		public Builder expiresAt(Instant expiresAt) { this.expiresAt = expiresAt; return this; }
 		public Builder signedWithUnknownKey() { this.key = OTHER_KEY; return this; }
+		/** The {@code azp} claim: the OAuth client a service token was issued to. */
+		public Builder authorizedParty(String clientId) { this.authorizedParty = clientId; return this; }
 
 		public String subject() { return this.subject; }
 
 		private JWTClaimsSet claims() {
 			Instant now = Instant.now();
-			return new JWTClaimsSet.Builder().issuer(this.issuer)
+			JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder().issuer(this.issuer)
 				.subject(this.subject)
 				.audience(this.audience)
 				.issueTime(Date.from(now.minusSeconds(5)))
 				.notBeforeTime(Date.from(now.minusSeconds(5)))
 				.expirationTime(Date.from(this.expiresAt))
 				.claim("scope", this.scope)
-				.claim("realm_access", Map.of("roles", this.roles))
-				.build();
+				.claim("realm_access", Map.of("roles", this.roles));
+			if (this.authorizedParty != null) {
+				claims.claim("azp", this.authorizedParty);
+			}
+			return claims.build();
 		}
 
 		/** RS256-signed compact JWT. */

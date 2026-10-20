@@ -180,7 +180,8 @@ class WorkerService {
 		ObjectNode consentRef = stored.putObject("consent_reference");
 		consentRef.put("consent_event_id", snapshot.get().consentEventId());
 		ArrayNode scopes = consentRef.putArray("scopes_verified");
-		snapshot.get().scopesVerified().stream().map(Enum::name).sorted().forEach(scopes::add);
+		snapshot.get().scopesVerified().stream().filter(ConsentScope.FEATURE_RECORD_SCOPES::contains).map(Enum::name).sorted()
+			.forEach(scopes::add);
 		consentRef.put("verified_at_utc", snapshot.get().verifiedAt().toString());
 		ObjectNode provenance = (ObjectNode) stored.get("provenance");
 		provenance.put("data_origin", r.dataOrigin());
@@ -275,7 +276,8 @@ class WorkerService {
 
 	private static ProcessingApi.ConsentReference reference(ConsentSnapshot s) {
 		return new ProcessingApi.ConsentReference(s.consentEventId(),
-				s.scopesVerified().stream().map(Enum::name).sorted().toList(), s.verifiedAt());
+				s.scopesVerified().stream().filter(ConsentScope.FEATURE_RECORD_SCOPES::contains).map(Enum::name).sorted().toList(),
+				s.verifiedAt());
 	}
 
 	private DomainException reject(Actor worker, JobRepository.JobRow job, WorkerProblemCode code, List<String> pointers) {

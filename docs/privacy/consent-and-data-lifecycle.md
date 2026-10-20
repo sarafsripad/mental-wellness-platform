@@ -48,6 +48,8 @@
 
 ---
 
+**Added 2026-10-20 (ADR-015, synthetic data only):** `EXTERNAL_REFERRAL_SHARING` depends on `SCREENING_PARTICIPATION`. It allows a *pseudonymous* referral to be shared with an enabled partner programme (the form's wording gives Tele-MANAS and eSanjeevani as examples). Tying the scope to specific named partners per form version is required before any real partner (docs/integration/partner-onboarding.md, item 3). The referral holds no name, contact details or answers. It is asked as a separate yes/no question, and withdrawing it revokes referrals, including at partners that already received them.
+
 ## 3. Consent lifecycle
 
 ```mermaid
@@ -102,6 +104,8 @@ Research exports contain only re-keyed pseudonyms (ADR-010), so the application 
 | Raw audio | `AUDIO_RECORDING` | **Processing window ≤ 30 days [ASSUMPTION — privacy]**, or the approved period with `AUDIO_RETENTION` | Lifecycle rule plus withdrawal; recorded in the audit log |
 | Feature records | `AUDIO_RECORDING` | **[OPEN]** | Withdrawal (see §4) |
 | Questionnaires, observations, reviews, referrals | `SCREENING_PARTICIPATION` | Applicable clinical record rules **[OPEN — legal]** | Per legal guidance |
+| Partner referrals (pseudonymous; handoff code, coded priority, reason and timeframe) | `EXTERNAL_REFERRAL_SHARING`, clinician's explicit action | Per data-sharing agreement **[OPEN — legal]** | Revoked at the partner on withdrawal |
+| HMIS aggregate reports (counts, 1–4 shown as `<5`) | Human-triggered | Programme reporting rules **[OPEN]** | Not personal data |
 | ASHA case (age band, gender, health conditions, tobacco/alcohol use, sleep, questionnaire answers, follow-up and urgent-review flags) — **sensitive** | `SCREENING_PARTICIPATION`, synthetic data only (ADR-013) | As questionnaires **[OPEN — legal]** | Per legal guidance |
 | Identity in the ASHA flow (name or approved identifier, village), encrypted in `identity_db` | After the consent event, write-only (`identity-api.v1.yaml`) | As identity above | As identity above; on withdrawal **[OPEN — privacy]** |
 | Audit events | Always | ≥ 12 months **[ASSUMPTION, from data-governance.md]** | Automatic expiry |

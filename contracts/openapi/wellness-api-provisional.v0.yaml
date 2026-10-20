@@ -17,8 +17,8 @@ info:
     approved contract (see `contracts/inference-contract.json` and docs/research/model-validation-plan.md).
 
     **External systems:** no hospital, government or third-party health system is integrated or
-    available. The integration section only defines where an adapter would sit, and it is
-    blocked on data-sharing agreements.
+    available. Partner referrals are simulated only (wellness-api.v1.yaml 1.3, ADR-015); real
+    partners are blocked on data-sharing agreements.
 servers:
   - url: http://localhost:8080
 security:
@@ -26,8 +26,6 @@ security:
 tags:
   - name: referrals
     description: 'PROVISIONAL. Needs: clinical lead and programme team (referral pathways, follow-up schedule, urgent-risk protocol).'
-  - name: integration
-    description: 'PROVISIONAL and BLOCKED. Needs: signed data-sharing agreement, partner technical specification, legal review. No partner system is identified.'
 
 paths:
   # /v1/cases, /v1/cases/{caseId}, questionnaire-responses and observations moved to
@@ -39,8 +37,8 @@ paths:
   /v1/referrals:
     post:
       tags: [referrals]
-      operationId: createReferral
-      summary: Create a referral
+      operationId: createPathwayReferral
+      summary: Create a referral to a programme care pathway (not a partner system)
       description: Creates a referral to a care pathway. Pathways are configuration supplied by the programme. No external booking or messaging system is called.
       x-status: PROVISIONAL
       x-roles: [CLINICIAN]
@@ -82,29 +80,9 @@ paths:
         '201': { description: Recorded. }
         default: { $ref: '#/components/responses/Problem' }
 
-  /internal/v1/integration/outbound-referrals:
-    post:
-      tags: [integration]
-      operationId: exportReferralToPartner
-      summary: '(BLOCKED) Hand a referral to an authorised partner system'
-      description: |
-        Placeholder for an adapter boundary. The core platform hands a minimal referral message to
-        an adapter, and the adapter alone knows the partner's protocol (for example HL7 FHIR).
-        **No partner system is identified, integrated or authorised.** Do not implement until a
-        data-sharing agreement, partner specification and legal approval exist.
-      x-status: BLOCKED
-      x-roles: [INTEGRATION_ADAPTER]
-      x-consent-prerequisite: A specific consent scope for sharing with the named partner. It is not defined yet and is not part of the current scope list.
-      x-audit-events: [PARTNER_EXPORT_REQUESTED]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              description: Undefined until partner requirements are known.
-      responses:
-        '501': { description: Not implemented. }
+  # /internal/v1/integration/outbound-referrals was replaced by partner referrals in
+  # wellness-api.v1.yaml 1.3.0 (referrals tag) and integration-internal.v1.yaml (ADR-015).
+  # Real partners stay blocked on agreements: docs/integration/partner-onboarding.md.
 
 components:
   securitySchemes:
