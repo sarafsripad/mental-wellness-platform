@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -203,6 +204,12 @@ class ConsentService implements ConsentGate, ParticipantAccess {
 		ConsentRepository.StoredEvent stored = this.repository.findEvent(consentEventId)
 			.orElseThrow(() -> new DomainException(ProblemCode.CONSENT_NOT_ACTIVE));
 		return check(stored, required);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public Optional<String> assignedWorker(String participantRef) {
+		return this.repository.assignedWorker(participantRef);
 	}
 
 	@Override

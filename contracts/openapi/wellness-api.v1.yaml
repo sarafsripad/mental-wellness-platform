@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Mental Wellness Platform — Wellness API
-  version: 1.3.0-draft.1
+  version: 1.4.0-draft.1
   summary: Public API — consent, voice sessions, recordings, audio-processing jobs, ASHA assessment cases, clinician review, programme support contacts and partner referrals.
   description: |
     Public API of the wellness backend (a Spring Boot modular monolith, Java 21) used by the
@@ -71,6 +71,11 @@ tags:
       ASHA assessment visits (1.1, promoted from wellness-api-provisional.v0.yaml). A case holds
       coded answers only: age band, gender, health and lifestyle observations, questionnaire
       answers and the worker's follow-up decision. No free text (consent-and-data-lifecycle.md §8).
+  - name: care-team
+    description: |
+      Facilities, staff memberships and each participant's care team (1.4, ADR-016). The ASHA worker
+      keeps their own link; facility staff (CLINICIAN, COUNSELLOR, HEALTH_STAFF) reach a participant
+      only through an active membership at a facility on that participant's care team.
   - name: programme
     description: Programme reference data with no participant data, such as verified support contacts (ADR-015).
   - name: referrals
@@ -1063,6 +1068,162 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /v1/admin/facilities/{facilityCode}:
+    put:
+      tags: [care-team]
+      operationId: putFacility
+      summary: Create or update a facility
+      security:
+        - oidc: [careteam:admin]
+      x-roles: [ADMIN]
+      x-data-access: No participant data. X-Access-Reason is always required here (400 without it); audited with the reason code.
+      x-consent-prerequisite: none (no participant data)
+      x-audit-events: [FACILITY_UPSERTED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/FacilityCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FacilityPut' }
+      responses:
+        '200':
+          description: The facility.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Facility' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/admin/facilities/{facilityCode}/memberships/{subject}:
+    put:
+      tags: [care-team]
+      operationId: putStaffMembership
+      summary: Add, change or deactivate a staff member's role at a facility
+      description: '`subject` is the staff member''s identity-provider subject (pseudonymous). The role must also be one of their realm roles to take effect.'
+      security:
+        - oidc: [careteam:admin]
+      x-roles: [ADMIN]
+      x-data-access: No participant data. X-Access-Reason is always required here (400 without it); audited with the reason code.
+      x-consent-prerequisite: none (no participant data)
+      x-audit-events: [STAFF_MEMBERSHIP_UPSERTED]
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/FacilityCode'
+        - name: subject
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,64}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MembershipPut' }
+      responses:
+        '200':
+          description: The membership.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Membership' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/participants/{participantRef}/care-team/{facilityCode}:
+    put:
+      tags: [care-team]
+      operationId: addCareTeamFacility
+      summary: Add a facility to a participant's care team
+      description: The participant's ASHA worker (reason ASHA_REFERRAL) or an ADMIN (any reason, with X-Access-Reason). Idempotent. Facility staff then see the participant's record within their role.
+      security:
+        - oidc: [careteam:write]
+        - oidc: [careteam:admin]
+      x-roles: [ASHA_WORKER, ADMIN]
+      x-data-access: The participant's ASHA worker, or ADMIN with a reason code.
+      x-consent-prerequisite: SCREENING_PARTICIPATION in effect on the named consent event.
+      x-audit-events: [CARE_TEAM_FACILITY_ADDED]
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/ParticipantRef'
+        - $ref: '#/components/parameters/FacilityCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CareTeamAdd' }
+      responses:
+        '200':
+          description: The care team.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CareTeam' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableConsent' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/participants/{participantRef}/care-team:
+    get:
+      tags: [care-team]
+      operationId: getCareTeam
+      summary: A participant's care team
+      security:
+        - oidc: [careteam:read]
+        - oidc: [careteam:admin]
+      x-roles: [ASHA_WORKER, CLINICIAN, COUNSELLOR, HEALTH_STAFF, ADMIN]
+      x-data-access: The ASHA worker, staff of a care-team facility, or ADMIN with a reason code. Others get 404.
+      x-consent-prerequisite: none
+      x-audit-events: [CARE_TEAM_READ]
+      parameters:
+        - $ref: '#/components/parameters/AccessReason'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/ParticipantRef'
+      responses:
+        '200':
+          description: The care team.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CareTeam' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/me/care-memberships:
+    get:
+      tags: [care-team]
+      operationId: listMyCareMemberships
+      summary: The caller's facilities and roles
+      description: Only memberships whose role the caller also holds in their token.
+      security:
+        - oidc: [careteam:read]
+      x-roles: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+      x-data-access: The caller's own memberships.
+      x-consent-prerequisite: none (no participant data)
+      x-audit-events: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Memberships.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MyMemberships' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
 components:
   securitySchemes:
     oidc:
@@ -1114,6 +1275,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/JobId' }
+    FacilityCode:
+      name: facilityCode
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
     CaseId:
       name: caseId
       in: path
@@ -1937,6 +2103,83 @@ components:
         referrals:
           type: array
           items: { $ref: '#/components/schemas/Referral' }
+
+    FacilityKind:
+      type: string
+      enum: [PHC, CHC, DISTRICT_HOSPITAL, TELE_CENTRE, COUNSELLING_CENTRE]
+    CareRole:
+      type: string
+      enum: [CLINICIAN, COUNSELLOR, HEALTH_STAFF]
+    FacilityPut:
+      type: object
+      required: [kind, facility_label, active]
+      additionalProperties: false
+      properties:
+        kind: { $ref: '#/components/schemas/FacilityKind' }
+        facility_label: { type: string, minLength: 1, maxLength: 80, description: 'Facility label, for example "PHC Testpur". Not an address.' }
+        active: { type: boolean }
+    Facility:
+      type: object
+      required: [facility_code, kind, facility_label, active]
+      additionalProperties: false
+      properties:
+        facility_code: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
+        kind: { $ref: '#/components/schemas/FacilityKind' }
+        facility_label: { type: string }
+        active: { type: boolean }
+    MembershipPut:
+      type: object
+      required: [care_role, active]
+      additionalProperties: false
+      properties:
+        care_role: { $ref: '#/components/schemas/CareRole' }
+        active: { type: boolean }
+    Membership:
+      type: object
+      required: [facility_code, facility_label, kind, care_role]
+      additionalProperties: false
+      properties:
+        facility_code: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
+        facility_label: { type: string }
+        kind: { $ref: '#/components/schemas/FacilityKind' }
+        care_role: { $ref: '#/components/schemas/CareRole' }
+    MyMemberships:
+      type: object
+      required: [staff_ref, memberships]
+      additionalProperties: false
+      properties:
+        staff_ref: { type: string, pattern: '^clin_[a-f0-9]{32}$' }
+        memberships:
+          type: array
+          items: { $ref: '#/components/schemas/Membership' }
+    CareTeamAdd:
+      type: object
+      required: [reason_code, consent_event_id]
+      additionalProperties: false
+      properties:
+        reason_code: { type: string, enum: [ASHA_REFERRAL, CLINIC_REGISTRATION, TRANSFER] }
+        consent_event_id: { $ref: '#/components/schemas/ConsentEventId' }
+    CareTeam:
+      type: object
+      required: [participant_ref, asha_worker_ref, facilities]
+      additionalProperties: false
+      properties:
+        participant_ref: { $ref: '#/components/schemas/ParticipantRef' }
+        asha_worker_ref:
+          type: [string, 'null']
+          pattern: '^wkr_[a-f0-9]{32}$'
+        facilities:
+          type: array
+          items:
+            type: object
+            required: [facility_code, facility_label, kind, reason_code, added_at_utc]
+            additionalProperties: false
+            properties:
+              facility_code: { type: string, pattern: '^[a-z0-9-]{3,40}$' }
+              facility_label: { type: string }
+              kind: { $ref: '#/components/schemas/FacilityKind' }
+              reason_code: { type: string, enum: [ASHA_REFERRAL, CLINIC_REGISTRATION, TRANSFER] }
+              added_at_utc: { $ref: '#/components/schemas/Timestamp' }
 
     Problem:
       type: object

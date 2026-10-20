@@ -23,7 +23,7 @@ public class RealmRoleConverter implements Converter<Jwt, AbstractAuthentication
 
 	/** Roles the platform recognises (contracts: {@code x-roles}). */
 	public static final Set<String> PLATFORM_ROLES = Set.of("ASHA_WORKER", "CLINICIAN", "ADMIN", "PROCESSING_WORKER",
-			"PARTNER_SYSTEM");
+			"PARTNER_SYSTEM", "COUNSELLOR", "HEALTH_STAFF");
 
 	private final JwtGrantedAuthoritiesConverter scopes = new JwtGrantedAuthoritiesConverter();
 

@@ -3,7 +3,7 @@
 **Date:** 2026-10-17
 **Context document:** [solution-architecture.md](solution-architecture.md)
 
-This log holds ADR-003 to ADR-015. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
+This log holds ADR-003 to ADR-016. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
 
 | ADR | Title | Status |
 |---|---|---|
@@ -22,6 +22,7 @@ This log holds ADR-003 to ADR-015. ADR-001 and ADR-002 are separate files, and f
 | [013](#adr-013-asha-assessment-cases-and-write-only-identity-intake) | ASHA assessment cases and write-only identity intake | ACCEPTED for synthetic data (repository owner, 2026-10-18); privacy lead review pending |
 | [014](#adr-014-clinician-review-of-flagged-cases) | Clinician review of flagged cases | ACCEPTED for synthetic data (repository owner, 2026-10-19); clinical lead review pending |
 | [015](#adr-015-partner-programme-integration-simulated-only) | Partner programme integration (simulated only) | ACCEPTED for synthetic data and simulated partners (repository owner, 2026-10-20); agreements, legal and clinical review pending |
+| [016](#adr-016-care-teams-and-clinic-staff-access) | Care teams and clinic staff access | ACCEPTED for synthetic data (repository owner, 2026-10-20); phase 1 built, phases 2–5 planned |
 
 Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means a decision the repository owner explicitly made in this session. No ADR here is approved for clinical use.
 
@@ -424,4 +425,34 @@ No data-sharing agreement, specification or credentials exist, and Tele-MANAS an
 - **From the security review (2026-10-20):**
   - Fixed: an in-flight send is treated as possibly delivered, so a withdrawal always revokes it. Consent is re-checked when each referral is sent. Revocations go to partners disabled since, and failed revocations are logged and audited for manual follow-up.
   - Open: per-partner consent (the scope is generic today); an alert channel for failed revocations; whether HMIS counts should exclude withdrawn participants; complementary suppression; a separate OAuth client per real partner.
+
+---
+
+## ADR-016: Care teams and clinic staff access
+
+**Context.** Doctors, counsellors, tele-consultation staff and other health staff need to capture and see data about the same people the ASHA workers visit. Until now each participant belonged only to the ASHA worker who recorded their first consent (ADR-011, v1 assignment). On 2026-10-20 the repository owner decided on:
+- one **shared patient record** across ASHA and clinic
+- an audited identity lookup
+- validated instruments, clinical notes, diagnosis codes and follow-up plans
+- delivery in five phases (plan: care teams → registration and lookup → encounters → clinic app → ASHA follow-up)
+
+**Decision (phase 1, built).**
+- A `careteam` module holds facilities, staff memberships (subject, facility, role) and each participant's care team.
+- The **ASHA link is unchanged** (`consent.participant_assignment`, `ParticipantAccess.isAssignedTo`). Facility staff are added on top through `CareTeams.staffAccess`. That needs all three of:
+  1. the role in the caller's token
+  2. an active membership with that role at an active facility
+  3. that facility on the participant's care team
+- **New realm roles:** `COUNSELLOR` and `HEALTH_STAFF`. `CLINICIAN` covers doctors. `HEALTH_STAFF` will never see notes, diagnoses or scores.
+- **Who adds a facility:** the participant's ASHA worker (reason `ASHA_REFERRAL`) or an ADMIN with a reason code. Screening consent must be in effect. Facility and membership administration always needs a reason code, and every change is audited.
+
+**Rationale.** Keeping the ASHA link and adding the care-team rule beside it means no existing access path changes meaning. Requiring the token role as well as the membership guards against stale memberships, and against tokens issued for a different role.
+
+**Consequences.**
+- *Positive:* a single record and continuity of care; facility-level need-to-know for staff.
+- *Negative:* memberships must be administered, and the clinician review queue (ADR-014) is still programme-wide until it's filtered by care team.
+
+**Unresolved.**
+- Phases 2–5 (identity lookup, `CLINICAL_CARE` consent, notes policy, instruments). Each needs privacy and clinical approval before real data.
+- Who may add facilities beyond ASHA referral and ADMIN (for example clinic self-registration in phase 2).
+- Removing a facility from a care team.
 

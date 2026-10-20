@@ -18,7 +18,7 @@
       },
       {
         "name": "CLINICIAN",
-        "description": "Reviews cases in an assigned catchment"
+        "description": "Doctor or clinician; reviews flagged cases and, at a facility, sees its care-team participants"
       },
       {
         "name": "ADMIN",
@@ -31,6 +31,14 @@
       {
         "name": "PARTNER_SYSTEM",
         "description": "Service role for partner programme systems (SIMULATED partners only in this environment)"
+      },
+      {
+        "name": "COUNSELLOR",
+        "description": "Trained counsellor; reaches participants only through a facility on their care team"
+      },
+      {
+        "name": "HEALTH_STAFF",
+        "description": "ANM, nurse or other health staff; no access to notes, diagnoses or scores"
       }
     ]
   },
@@ -204,6 +212,36 @@
       "protocolMappers": []
     },
     {
+      "name": "careteam:read",
+      "description": "Read care teams and own facility memberships",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "careteam:write",
+      "description": "Refer an assigned participant to a facility",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "careteam:admin",
+      "description": "Administer facilities, staff memberships and care teams (reason-coded)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
       "name": "processing:worker",
       "description": "Processing worker: claim jobs, fetch leased audio, submit results",
       "protocol": "openid-connect",
@@ -261,7 +299,9 @@
         "processing:read",
         "processing:write",
         "cases:read",
-        "cases:write"
+        "cases:write",
+        "careteam:read",
+        "careteam:write"
       ],
       "optionalClientScopes": []
     },
@@ -335,7 +375,10 @@
         "cases:read",
         "cases:write",
         "review:read",
-        "review:write"
+        "review:write",
+        "careteam:read",
+        "careteam:write",
+        "careteam:admin"
       ],
       "optionalClientScopes": []
     },
@@ -403,7 +446,9 @@
         "consent:read",
         "consent:write",
         "cases:read",
-        "cases:write"
+        "cases:write",
+        "careteam:read",
+        "careteam:write"
       ],
       "optionalClientScopes": []
     },
@@ -434,7 +479,8 @@
         "roles",
         "wellness-api-audience",
         "review:read",
-        "review:write"
+        "review:write",
+        "careteam:read"
       ],
       "optionalClientScopes": []
     }
@@ -493,6 +539,63 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "username": "doctor.test1",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "doctor.test1@example.invalid",
+      "firstName": "Synthetic",
+      "lastName": "Doctor One",
+      "realmRoles": [
+        "CLINICIAN"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "id": "5f0d1c2a-6b1e-4c1a-9e00-0000000000d1"
+    },
+    {
+      "username": "counsellor.test1",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "counsellor.test1@example.invalid",
+      "firstName": "Synthetic",
+      "lastName": "Counsellor One",
+      "realmRoles": [
+        "COUNSELLOR"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "id": "5f0d1c2a-6b1e-4c1a-9e00-0000000000c1"
+    },
+    {
+      "username": "nurse.test1",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "nurse.test1@example.invalid",
+      "firstName": "Synthetic",
+      "lastName": "Nurse One",
+      "realmRoles": [
+        "HEALTH_STAFF"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "id": "5f0d1c2a-6b1e-4c1a-9e00-0000000000e1"
     },
     {
       "username": "admin.test1",
