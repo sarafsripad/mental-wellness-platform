@@ -92,8 +92,11 @@ A breaking schema change needs a version bump (in both `$id` and `version`) and 
 
 ## Documentation
 
+- [Business requirements](docs/business/business-requirements.md): purpose, users, processes, requirements with build status, regulation and approvals
+- [Design and architecture (as built)](docs/architecture/design-and-architecture.md): components, modules, data model, interfaces, key flows, security and known limitations
+- [Production infrastructure and deployment](docs/deployment/production-infrastructure-and-deployment.md): **proposed** India-resident target topology, security, observability, DR, CI/CD and go-live checklist
 - [Solution architecture](docs/architecture/solution-architecture.md): context, components, data flows, deployment and cross-cutting concerns
-- [Architecture decisions](docs/architecture/architecture-decisions.md): ADR-003 to ADR-012 and the ADR index
+- [Architecture decisions](docs/architecture/architecture-decisions.md): ADR-003 to ADR-015 and the ADR index
 - [ADR-001: Workstream separation](docs/architecture/ADR-001-workstream-separation.md)
 - [Consent and data lifecycle](docs/privacy/consent-and-data-lifecycle.md): consent scopes, withdrawal, retention and approvals needed (**draft, needs named approval**)
 - [Data governance](docs/privacy/data-governance.md): data categories, identifier handling, access and audit rules
