@@ -221,6 +221,10 @@ sequenceDiagram
   - Mutable records (case details, follow-ups) use optimistic concurrency (`version`). A conflict is shown to a person to resolve and is never auto-merged.
 - **Time:** device timestamps are kept as `captured_at_utc`, and server time as `received_at_utc`. Consent checks use the server's consent state at processing time.
 - **Lost devices:** tokens are revoked at the IdP and the device's refresh token is invalidated. Local data stays encrypted. A remote-wipe policy is an open question.
+- **As built (ADR-017):**
+  - The Android app (`workstream-a/mobile/asha-care`) follows this section, with one change: the SQLCipher key is wrapped by the worker's PIN as well as the Keystore.
+  - The web app has an optional offline mode with the same outbox rules. It stores everything in IndexedDB encrypted under a PIN-wrapped AES-GCM key, and its service worker caches only the app's own files.
+  - Neither client stores tokens.
 
 ---
 

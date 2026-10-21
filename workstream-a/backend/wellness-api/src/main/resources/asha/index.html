@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ASHA Care</title>
   <link rel="stylesheet" href="app.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <script src="i18n.js" defer></script>
+  <script src="store.js" defer></script>
+  <script src="voice.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -27,7 +31,7 @@
       <h1 id="screenTitle">Choose your language</h1>
       <div class="sub muted" id="screenSub"></div>
     </div>
-    <progress id="progress" max="10" value="0"></progress>
+    <progress id="progress" max="11" value="0"></progress>
     <div class="content" id="screen"></div>
   </section>
   <aside>
@@ -38,7 +42,7 @@
     </div>
     <div class="sidecard">
       <h3 data-t="Privacy by design">Privacy by design</h3>
-      <p>Names and villages are encrypted in a separate identity store and are never shown again. Everything else is saved as coded answers, with no free text.</p>
+      <p>Names and villages are encrypted in a separate identity store and are never shown again. Everything else is saved as coded answers, with no free text. In offline mode, unsynced visits are kept on this device encrypted under your PIN.</p>
     </div>
     <div class="sidecard">
       <h3 data-t="Safety reminder">Safety reminder</h3>

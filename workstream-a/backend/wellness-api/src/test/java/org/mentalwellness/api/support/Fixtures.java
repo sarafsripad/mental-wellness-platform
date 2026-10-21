@@ -82,6 +82,15 @@ public final class Fixtures {
 	}
 
 	/** Consent on ASHA form 0.2.0, which also asks about sharing a referral with a partner (ADR-015). */
+	/** The ASHA form 0.3.0 (ADR-017), which also asks, separately, about recording the person's voice. */
+	public static Map<String, Object> ashaConsentWithAudio(String eventId, String participant, Instant capturedAt, boolean audio) {
+		Map<String, Object> body = ashaConsent(eventId, participant, "kn-IN", capturedAt);
+		body.put("consent_form", Map.of("form_id", "asha-wellness-consent", "form_version", "0.3.0", "language_tag", "kn-IN"));
+		body.put("scope_decisions", List.of(Map.of("scope", "SCREENING_PARTICIPATION", "granted", true),
+				Map.of("scope", "EXTERNAL_REFERRAL_SHARING", "granted", false), Map.of("scope", "AUDIO_RECORDING", "granted", audio)));
+		return body;
+	}
+
 	public static Map<String, Object> ashaConsentWithSharing(String eventId, String participant, Instant capturedAt,
 			boolean sharing) {
 		Map<String, Object> body = ashaConsent(eventId, participant, "kn-IN", capturedAt);

@@ -481,7 +481,9 @@
         "cases:read",
         "cases:write",
         "careteam:read",
-        "careteam:write"
+        "careteam:write",
+        "voice:write",
+        "processing:write"
       ],
       "optionalClientScopes": []
     },

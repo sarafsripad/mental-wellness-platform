@@ -2,21 +2,28 @@
 // Same flow and wording as the ASHA Care prototype, but every answer is saved through the
 // wellness API: consent event → case → identity (write-only) → observations → questionnaire →
 // completion. No framework or third-party code. All output goes through textContent.
-// Nothing is written to persistent browser storage: tokens, the visit in progress and the
-// offline outbox live in memory only (they include names), so a reload discards them.
+// Offline mode is off by default: the visit in progress and the outbox then live in memory only
+// (they include names), so a reload discards them. With offline mode on (ADR-017), store.js keeps
+// them encrypted on the device under the worker's PIN. Tokens are never stored either way.
 "use strict";
 
 const KEYCLOAK = "http://localhost:8081/realms/wellness-local/protocol/openid-connect";
 const CLIENT_ID = "wellness-asha-web";
 const REDIRECT_URI = location.origin + "/asha/";
 
-// 0.2.0 also asks, separately, about sharing a referral with a partner programme (ADR-015).
-const CONSENT_FORM = { form_id: "asha-wellness-consent", form_version: "0.2.0" };
+// 0.2.0 also asks, separately, about sharing a referral with a partner programme (ADR-015);
+// 0.3.0 also asks, separately, about recording the person's voice (ADR-017).
+const CONSENT_FORM = { form_id: "asha-wellness-consent", form_version: "0.3.0" };
+const PROMPT_SET = { prompt_set_id: "baseline-voice-tasks", prompt_set_version: "0.1.0" };
+const PIPELINE_PROFILE = "EGEMAPS_V02_FUNCTIONALS_V1";
+const PROMPTS = [["sustained-vowel-a", "Ask the person to say “aaah” for as long as is comfortable."],
+  ["counting-one-to-ten", "Ask the person to count slowly from one to ten."]];
+const SYNTHETIC_SECONDS = 6;
 const INSTRUMENT = { instrument_id: "illustrative-wellness", instrument_version: "0.1.0" };
 const CATALOGUE = { catalogue_id: "asha-observations", catalogue_version: "0.1.0" };
 
 const STEPS = ["language", "login", "home", "registration", "consent", "health", "wellness", "lifestyle", "safety",
-  "summary", "complete"];
+  "voice", "summary", "complete"];
 
 // Answer options: [API code, prototype wording]. Codes match wellness-api.v1.yaml 1.1.
 const AGE = [["", "Select age group"], ["AGE_UNDER_18", "Under 18 — use an approved child pathway"], ["AGE_18_29", "18–29"],
@@ -42,21 +49,33 @@ const CONSENT_METHOD = [["VERBAL_WITNESSED", "Verbal, with a witness"], ["SIGNED
 const TITLES = { language: "Choose your language", login: "ASHA worker login", home: "Namaste, ASHA worker",
   registration: "Beneficiary details", consent: "Consent to participate", declined: "Participation declined",
   health: "General health background", wellness: "Mental wellness questions", lifestyle: "Lifestyle and support",
-  safety: "Important safety check", summary: "Review and next steps", complete: "Assessment saved",
-  households: "My households", followups: "Follow-ups" };
+  safety: "Important safety check", voice: "Voice recording", summary: "Review and next steps", complete: "Assessment saved",
+  households: "My households", followups: "Follow-ups", unlock: "Unlock offline visits",
+  offlineSetup: "Offline mode" };
 const SUBS = { language: "Choose the language you are most comfortable using.",
   login: "Use your assigned worker account in the production app.", home: "Your community wellness visits",
   registration: "Collect only information required for the assessment.",
   consent: "Explain the purpose before asking any questions.", health: "Select conditions the person reports.",
   wellness: "Sample questions about the last two weeks.", lifestyle: "Ask sensitively and respect the person's privacy.",
-  safety: "Ask privately, following approved training.", summary: "Check the information and decide the next step.",
+  safety: "Ask privately, following approved training.",
+  voice: "Optional. Only with the person's consent to record their voice.", summary: "Check the information and decide the next step.",
   complete: "Thank you. The demonstration flow is complete.",
   declined: "Respect the person's decision. No screening questions will be asked.",
-  households: "View assigned visits", followups: "Review pending care" };
+  households: "View assigned visits", followups: "Review pending care",
+  unlock: "Visits saved on this device are encrypted. Enter your PIN.",
+  offlineSetup: "Keep visits on this device, encrypted, until they sync." };
 
-const auth = { token: null, refresh: null, claims: null, workerRef: null };
-const ui = { lang: "en", page: "language", online: true, message: null, lastEntry: null, listing: null };
+const auth = { token: null, refresh: null, claims: null, workerRef: null, owner: null };
+const ui = { lang: "en", page: "language", online: navigator.onLine, forcedOffline: false, message: null, lastEntry: null,
+  listing: null };
+// Offline mode (ADR-017): the unlocked store, whose worker it belongs to, and the stores on this device.
+const offline = { session: null, stores: [], idleTimer: null, retryTimer: null, failures: 0, quota: null };
+const IDLE_LOCK_MS = 5 * 60 * 1000;
+const STALE_MS = 3 * 24 * 3600 * 1000;
+const KEEP_FINISHED_MS = 7 * 24 * 3600 * 1000;
 let visit = null; // the assessment in progress (memory only)
+const audio = new Map(); // recording ID → WAV bytes, kept apart from the visit's JSON
+const settings = { microphone: false }; // from /asha/settings.json; the microphone needs privacy-lead approval
 const outbox = []; // saved assessments waiting for, or finished with, the API (memory only)
 let untranslated = new Set();
 const $ = (id) => document.getElementById(id);
@@ -167,6 +186,7 @@ function textInput(value, placeholder, onInput) {
   i.maxLength = 100;
   i.autocomplete = "off";
   i.spellcheck = false;
+  i.setAttribute("autocorrect", "off"); // keyboards must not learn beneficiary names (review W3)
   i.placeholder = t(placeholder).text;
   i.addEventListener("input", () => onInput(i.value));
   return i;
@@ -186,9 +206,12 @@ function labelOf(options, code) {
   const found = options.find(([c]) => c === code);
   return found ? found[1] : "Not answered";
 }
-function go(page) {
+function go(page, message = null) {
+  if (page !== "voice") cancelMicrophone(); // a recording never outlives its screen (review B1)
   ui.page = page;
-  ui.message = null;
+  if (visit && STEPS.includes(page)) visit.page = page; // a restored visit reopens where it was left
+  persistVisit();
+  ui.message = message;
   render();
 }
 function warn(text) {
@@ -232,6 +255,7 @@ async function tokenRequest(fields) {
   auth.refresh = body.refresh_token || null;
   const payload = body.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
   auth.claims = JSON.parse(atob(payload + "=".repeat((4 - (payload.length % 4)) % 4)));
+  auth.owner = await OfflineStore.ownerOf(auth.claims.sub);
 }
 
 /** Keeps the session alive without a redirect, so the in-memory outbox survives. */
@@ -246,17 +270,25 @@ async function freshToken() {
   }
 }
 
-function logout() {
-  if (pendingCount() > 0 || visit) {
+async function logout() {
+  if (offline.session) {
+    await persistVisit();
+    alert("Your offline data stays on this device, encrypted and locked. Your PIN unlocks it again.");
+  } else if (pendingCount() > 0 || visit) {
     if (!confirm("Unsynced assessments are kept only in this page and will be lost. Log out anyway?")) return;
   }
+  cancelMicrophone();
+  revokePlayback();
+  offline.session = null;
   outbox.length = 0;
   visit = null;
+  audio.clear();
   auth.token = auth.refresh = auth.claims = null;
   location.assign(`${KEYCLOAK}/logout?client_id=${CLIENT_ID}&post_logout_redirect_uri=${encodeURIComponent(REDIRECT_URI)}`);
 }
 
 function isAshaWorker() {
+  if (!auth.token && offline.session) return true; // the store was created while logged in as an ASHA worker
   return Boolean(auth.claims && auth.claims.realm_access && (auth.claims.realm_access.roles || []).includes("ASHA_WORKER"));
 }
 
@@ -266,14 +298,15 @@ class NetworkError extends Error {}
 class SessionError extends Error {}
 
 /** One API call. Request bodies are never logged: they can contain a name and a village. */
-async function api(method, path, body, idempotencyKey) {
+async function api(method, path, body, idempotencyKey, extraHeaders) {
   await freshToken();
-  const headers = { Authorization: `Bearer ${auth.token}`, "X-Correlation-ID": crypto.randomUUID() };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const headers = { Authorization: `Bearer ${auth.token}`, "X-Correlation-ID": crypto.randomUUID(), ...extraHeaders };
+  const binary = body instanceof Uint8Array;
+  if (body !== undefined && !binary) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   let r;
   try {
-    r = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    r = await fetch(path, { method, headers, body: body === undefined ? undefined : binary ? body : JSON.stringify(body) });
   } catch (e) {
     throw new NetworkError("network unavailable");
   }
@@ -291,7 +324,7 @@ function newVisit() {
       qr: randomId("qr") },
     name: "", village: "", age: "", gender: "NOT_STATED",
     consent: "", method: "VERBAL_WITNESSED", readAloud: false, understood: false, witness: false, adult: false,
-    sharing: "", consentAt: null,
+    sharing: "", audio: "", recordings: {}, consentAt: null,
     health: [], anxiety: "", sadness: "", interest: "", tobacco: "NOT_REPORTED", alcohol: "NOT_REPORTED", sleep: "",
     lifestyleAt: null, safety: "", safetyAt: null, followup: true,
   };
@@ -315,7 +348,8 @@ function operations(v, savedAt) {
       consent_event_id: v.ids.consent, participant_ref: v.ids.participant,
       consent_form: { ...CONSENT_FORM, language_tag: tag },
       scope_decisions: [{ scope: "SCREENING_PARTICIPATION", granted: true },
-        { scope: "EXTERNAL_REFERRAL_SHARING", granted: v.sharing === "yes" }],
+        { scope: "EXTERNAL_REFERRAL_SHARING", granted: v.sharing === "yes" },
+        { scope: "AUDIO_RECORDING", granted: v.audio === "yes" }],
       capture: { captured_at_utc: v.consentAt, method: v.method, read_aloud: v.readAloud, comprehension_confirmed: true,
         witness_present: v.witness },
       safeguards: { adult_confirmed: v.adult } } },
@@ -331,7 +365,61 @@ function operations(v, savedAt) {
       body: { response_id: v.ids.qr, instrument: INSTRUMENT, language_tag: tag, answered_at_utc: v.safetyAt, items } },
     { what: "completion", method: "POST", path: `/v1/cases/${caseId}/completion`, key: crypto.randomUUID(), body: {
       completed_at_utc: savedAt, follow_up_requested: v.followup } },
+    ...voiceOperations(v, tag),
   ];
+}
+
+/**
+ * Voice steps, only when the person agreed to recording (the consent gate). They come last and are
+ * optional: if the server refuses one (for example consent was withdrawn meanwhile), the audio is
+ * deleted and the rest of the visit still counts (ADR-008: withdrawal always wins).
+ */
+function voiceOperations(v, tag) {
+  const recs = Object.entries(v.recordings);
+  if (v.audio !== "yes" || !recs.length) return [];
+  const sessionId = v.ids.session || randomId("sess");
+  // A real voice is never labelled SYNTHETIC: any microphone recording makes the session test audio.
+  const origin = recs.some(([, r]) => r.origin !== "SYNTHETIC") ? "AUTHORIZED_TEST_AUDIO" : "SYNTHETIC";
+  const os = /iPhone|iPad/.test(navigator.userAgent) ? "IOS" : "ANDROID";
+  const ops = [{ what: "voice session", optional: true, method: "POST", path: "/v1/voice-sessions", key: crypto.randomUUID(),
+    body: { session_id: sessionId, participant_ref: v.ids.participant, consent_event_id: v.ids.consent, language_tag: tag,
+      prompt_set: PROMPT_SET, captured_at_utc: recs.map(([, r]) => r.recordedAt).sort()[0],
+      device: { device_class: "UNKNOWN", app_version: "0.3.0", os_family: os }, data_origin: origin } }];
+  for (const [promptId, r] of recs) {
+    ops.push({ what: "recording", optional: true, method: "POST", path: `/v1/voice-sessions/${sessionId}/recordings`,
+      key: crypto.randomUUID(), body: { recording_id: r.recordingId, prompt_id: promptId, format: "WAV_PCM_S16LE",
+        sampling_rate_hz: Voice.RATE, channels: 1, duration_seconds: r.seconds, size_bytes: r.size, sha256: r.sha256,
+        recorded_at_utc: r.recordedAt } },
+    { what: "audio upload", optional: true, method: "PUT", audio: r.recordingId, sha256: r.sha256,
+      path: `/v1/voice-sessions/${sessionId}/recordings/${r.recordingId}/content`, body: null },
+    { what: "processing", optional: true, method: "POST", path: "/v1/processing-jobs", key: crypto.randomUUID(),
+      body: { recording_id: r.recordingId, pipeline_profile: PIPELINE_PROFILE } });
+  }
+  return ops;
+}
+
+/** Drops an unsaved visit and any recordings it made. */
+function discardVisit() {
+  cancelMicrophone();
+  revokePlayback();
+  if (visit && visit.recordings) dropAudio(Object.values(visit.recordings).map((r) => r.recordingId));
+  visit = null;
+}
+
+function audioIds(entry) {
+  return entry.ops.filter((o) => o.audio).map((o) => o.audio);
+}
+
+async function audioBytes(id) {
+  return audio.get(id) || (offline.session ? offline.session.get("audio:" + id) : undefined);
+}
+
+/** Deletes recordings from memory and the device: after a confirmed upload, a refusal, or a discard. */
+async function dropAudio(ids) {
+  for (const id of ids) {
+    audio.delete(id);
+    if (offline.session) await offline.session.delete("audio:" + id).catch(storageFailed);
+  }
 }
 
 function pendingCount() {
@@ -343,13 +431,34 @@ let flushing = null;
 function flush() {
   if (!flushing) {
     flushing = doFlush()
-      .catch((e) => { ui.message = `Sync stopped: ${e.message}`; })
-      .finally(() => { flushing = null; render(); });
+      .then(() => { offline.failures = 0; })
+      .catch((e) => {
+        if (e instanceof NetworkError) offline.failures += 1;
+        else ui.message = `Sync stopped: ${e.message}`;
+      })
+      .finally(() => { flushing = null; scheduleRetry(); render(); });
   }
   return flushing;
 }
 
+/** Retries pending visits while the page is open: 30 s, doubling to at most 15 minutes. */
+function scheduleRetry() {
+  clearTimeout(offline.retryTimer);
+  if (!pendingCount() || !auth.token || !ui.online) return;
+  const delay = offline.failures ? Math.min(15 * 60000, 30000 * 2 ** (offline.failures - 1)) : 60000;
+  offline.retryTimer = setTimeout(flush, delay);
+}
+
 async function doFlush() {
+  if (!auth.token) {
+    ui.message = "Log in to sync. Your visits stay on this device until then.";
+    return;
+  }
+  // Only the worker who saved a visit may send it (ADR-017): the store is theirs, and so are the IDs.
+  if (offline.session && offline.session.owner !== auth.owner) {
+    ui.message = "These offline visits belong to another worker's login. Log in as that worker to sync them.";
+    return;
+  }
   for (const entry of outbox) {
     if (entry.status !== "pending") continue;
     while (entry.next < entry.ops.length) {
@@ -357,11 +466,19 @@ async function doFlush() {
       const op = entry.ops[entry.next];
       let r;
       try {
-        r = await api(op.method, op.path, op.body, op.key);
+        if (op.audio) {
+          const bytes = await audioBytes(op.audio);
+          // A lost recording is a voice refusal: it must never hold back later visits (review W2).
+          r = bytes ? await api(op.method, op.path, bytes, null, { "Content-Type": "audio/wav", "X-Content-SHA256": op.sha256 })
+            : { status: 0, data: { code: "RECORDING_MISSING_ON_DEVICE" } };
+        } else {
+          r = await api(op.method, op.path, op.body, op.key);
+        }
       } catch (e) {
-        if (e instanceof NetworkError) return; // stay pending; try again on the next sync
+        if (e instanceof NetworkError) throw e; // stay pending; retried with back-off
         if (e instanceof SessionError) {
-          ui.message = "Your session has expired. Unsynced assessments stay pending in this page; logging in again "
+          ui.message = offline.session ? "Your session has expired. Log in again to sync; your visits stay on this device."
+            : "Your session has expired. Unsynced assessments stay pending in this page; logging in again "
             + "reloads the page and discards them.";
           return;
         }
@@ -372,17 +489,31 @@ async function doFlush() {
         if (r.data && r.data.case_id) entry.result = r.data;
         if (r.data && r.data.patient_card_code) entry.card = r.data.patient_card_code;
         if (r.data && r.data.opened_by_worker_ref) auth.workerRef = r.data.opened_by_worker_ref;
+        // The audio leaves the device only once the server has stored exactly these bytes.
+        if (op.audio && r.data && r.data.upload_status === "STORED" && r.data.sha256 === op.sha256) await dropAudio([op.audio]);
         entry.next += 1;
+        await persistEntry(entry); // a reload resumes after the last confirmed step
+      } else if (op.optional) {
+        // The visit itself is saved; only the voice part was refused. Its audio is deleted, not retried.
+        entry.voiceProblem = r.data && r.data.code ? `${op.what}: ${r.data.code}` : `${op.what}: HTTP ${r.status}`;
+        await dropAudio(audioIds(entry));
+        for (const o of entry.ops.slice(entry.next)) o.body = null;
+        entry.next = entry.ops.length;
+        await persistEntry(entry);
       } else {
         entry.status = "failed";
         entry.problem = r.data && r.data.code ? `${op.what}: ${r.data.code}` : `${op.what}: HTTP ${r.status}`;
         for (const o of entry.ops) o.body = null; // a refused visit is not retried, so drop its answers
+        await dropAudio(audioIds(entry));
+        await persistEntry(entry);
         break;
       }
     }
     if (entry.status === "pending") {
       entry.status = "done";
       for (const op of entry.ops) op.body = null;
+      await dropAudio(audioIds(entry));
+      await persistEntry(entry);
     }
   }
 }
@@ -405,7 +536,8 @@ const screens = {
     }
     return [raw("p", "Select an app language. Translations other than English are unreviewed prototype translations; "
       + "strings marked EN have no translation and are shown in English."), box,
-    actions(button("Continue →", () => go(auth.token ? "home" : "login"), "full"))];
+    actions(button("Continue →", () => go(auth.token || offline.session ? "home" : offline.stores.length ? "unlock" : "login"),
+      "full"))];
   },
 
   login() {
@@ -429,17 +561,25 @@ const screens = {
     };
     const cards = raw("div", null, "cards");
     const pending = pendingCount();
-    const syncTile = tile("⇅", "Sync data", null, sync);
+    const syncTile = tile("⇅", "Sync data", null, () => (auth.token ? sync() : loginToSync()));
     syncTile.querySelector("small").textContent = `${t("Pending records:").text} ${pending}`;
     cards.append(
-      tile("＋", "New assessment", "Start a household visit", () => { visit = newVisit(); go("registration"); }),
+      tile("＋", "New assessment", "Start a household visit", () => { discardVisit(); visit = newVisit(); go("registration"); }),
       tile("⌂", "My households", "View assigned visits", () => openList("households")),
       tile("▦", "Follow-ups", "Review pending care", () => openList("followups")),
       syncTile);
-    const nodes = [cards, field("Connectivity simulation", radios("online",
-      [["no", "Offline — save for later"], ["yes", "Internet available"]], ui.online ? "yes" : "no",
-      (v) => { ui.online = v === "yes"; render(); if (ui.online && pendingCount()) flush(); }))];
-    nodes.push(raw("p", auth.workerRef ? `Worker reference: ${auth.workerRef}` : "Signed in as an ASHA worker.", "small"));
+    const nodes = [cards, checkbox("Work offline (test: treat the connection as unavailable)", ui.forcedOffline, (v) => {
+      ui.forcedOffline = v;
+      connectivityChanged();
+    })];
+    nodes.push(offlineModeBox());
+    nodes.push(raw("p", !auth.token ? "Working offline without a login. Log in to sync."
+      : auth.workerRef ? `Worker reference: ${auth.workerRef}` : "Signed in as an ASHA worker.", "small"));
+    const stale = outbox.filter((e) => e.status === "pending" && Date.now() - Date.parse(e.savedAt) > STALE_MS).length;
+    if (stale) {
+      nodes.push(raw("div", `${stale} visit(s) have waited more than 3 days to sync. Connect and sync as soon as you can; `
+        + "if the device is lost or reset before then, they are lost.", "alert"));
+    }
     const failed = outbox.filter((e) => e.status === "failed");
     if (failed.length) {
       nodes.push(raw("div", `${failed.length} assessment(s) were refused by the server: `
@@ -452,6 +592,60 @@ const screens = {
         + "tell your supervisor now.", "alert"));
     }
     return nodes;
+  },
+
+  unlock() {
+    const mine = auth.token ? offline.stores.filter((m) => m.owner === auth.owner) : offline.stores;
+    if (!mine.length) {
+      return [raw("div", "There are no offline visits for this account on this device.", "notice"),
+        actions(button(auth.token ? "Continue →" : "Log in", () => (auth.token ? go("home") : go("login")), "full"))];
+    }
+    let chosen = mine[0].owner;
+    let pin = "";
+    const nodes = [];
+    if (mine.length > 1) {
+      nodes.push(field("Whose visits?", select(mine.map((m) => [m.owner,
+        `Saved data ${m.owner.slice(0, 6)} · since ${new Date(m.createdAt).toLocaleDateString()}`]), chosen,
+      (v) => { chosen = v; })));
+    }
+    const input = textInput("", "PIN", (v) => { pin = v; });
+    input.type = "password";
+    input.inputMode = "numeric";
+    input.autocomplete = "off";
+    nodes.push(field("PIN", input),
+      raw("p", `After ${OfflineStore.MAX_ATTEMPTS} wrong PINs this worker's offline data is deleted.`, "small"),
+      actions(button("Unlock", () => unlockWith(chosen, pin), "full")));
+    if (!auth.token) nodes.push(actions(button("Log in instead", () => go("login"), "secondary full")));
+    nodes.push(actions(button("Forgotten PIN: delete this data", async () => {
+      if (!confirm("This deletes every unsynced visit stored for this worker on this device. Continue?")) return;
+      await OfflineStore.remove(chosen);
+      offline.stores = await OfflineStore.list();
+      if (!offline.stores.length) await unregisterShell();
+      go(offline.stores.length ? "unlock" : auth.token ? "home" : "login");
+    }, "secondary full")));
+    return nodes;
+  },
+
+  offlineSetup() {
+    let pin = "";
+    let again = "";
+    const box = (placeholder, set) => {
+      const i = textInput("", placeholder, set);
+      i.type = "password";
+      i.inputMode = "numeric";
+      i.autocomplete = "new-password";
+      return i;
+    };
+    return [
+      raw("div", "Visits you save are kept on this device, encrypted with a key that only your PIN unlocks, until "
+        + "they reach the server. The app locks after 5 minutes without use. Choose a PIN nobody else knows: "
+        + `after ${OfflineStore.MAX_ATTEMPTS} wrong attempts the stored visits are deleted.`, "notice"),
+      field("New PIN (6 to 12 digits)", box("PIN", (v) => { pin = v; })),
+      field("Repeat the PIN", box("PIN again", (v) => { again = v; })),
+      raw("p", "Test build: use synthetic visits only. A shared device keeps each worker's visits separately.", "small"),
+      actions(button("Turn on offline mode", () => enableOffline(pin, again), "full"),
+        button("Back", () => go("home"), "secondary")),
+    ];
   },
 
   households() { return listScreen(false); },
@@ -499,6 +693,10 @@ const screens = {
         + "(for example Tele-MANAS or eSanjeevani)? The referral carries no name or phone number; you would connect the "
         + "person yourself, quoting a short code.", radios("sharing", [["yes", "Yes, the person agrees"],
         ["no", "No, do not share"]], visit.sharing, (v) => { visit.sharing = v; })));
+      nodes.push(field("Optional: may we record the person's voice for a few seconds? The recording is used to study voice "
+        + "and wellbeing. It is not a test and gives no result. The person can say no and still take part.",
+      radios("audio", [["yes", "Yes, the person agrees to a voice recording"], ["no", "No voice recording"]], visit.audio,
+        (v) => { visit.audio = v; })));
     }
     nodes.push(actions(button("Continue", () => {
       if (!visit.consent) return warn("Please record the person's choice.");
@@ -509,6 +707,7 @@ const screens = {
       if (!visit.understood) return warn("Consent needs the person's confirmed understanding.");
       if (!visit.adult) return warn("Only adults can be assessed. Use an approved child pathway for people under 18.");
       if (!visit.sharing) return warn("Please record the person's choice about sharing a referral.");
+      if (!visit.audio) return warn("Please record the person's choice about a voice recording.");
       if (visit.method === "VERBAL_WITNESSED" && !visit.witness) return warn("Verbal consent needs a witness.");
       visit.consentAt = isoNow();
       go("health");
@@ -574,8 +773,40 @@ const screens = {
     nodes.push(actions(button("Review assessment →", () => {
       if (!visit.safety) return warn("Please record a response or prefer-not-to-answer.");
       visit.safetyAt = isoNow();
-      go("summary");
+      go(visit.audio === "yes" ? "voice" : "summary");
     }, "full")));
+    return nodes;
+  },
+
+  voice() {
+    revokePlayback(); // the previous render's players are replaced
+    // The consent gate: no recording control exists unless the person agreed to recording.
+    if (visit.audio !== "yes") {
+      return [el("div", "The person did not agree to a voice recording, so nothing can be recorded.", "notice"),
+        actions(button("Review assessment →", () => go("summary"), "full"))];
+    }
+    const nodes = [el("div", settings.microphone ? "Record in a quiet place, with the phone about 20 cm from the person."
+      : "Test build: the microphone is off, so each recording is a generated synthetic voice, not the person.", "notice")];
+    for (const [promptId, instruction] of PROMPTS) {
+      const done = visit.recordings[promptId];
+      const box = raw("div", null, "sidebox");
+      box.append(el("p", instruction));
+      if (done) {
+        box.append(raw("p", `✓ Recorded ${done.seconds.toFixed(1)} s`, "small"));
+        const bytes = audio.get(done.recordingId);
+        if (bytes) {
+          const player = document.createElement("audio");
+          player.controls = true;
+          player.src = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+          playbackUrls.push(player.src);
+          box.append(player);
+        }
+      }
+      box.append(actions(recordButton(promptId, done)));
+      nodes.push(box);
+    }
+    nodes.push(el("p", "No result is shown, now or later: a voice recording is not a diagnosis.", "small"),
+      actions(button("Review assessment →", () => go("summary"), "full")));
     return nodes;
   },
 
@@ -591,6 +822,7 @@ const screens = {
       row("Age group", labelOf(AGE, visit.age)),
       row("Consent", "Obtained"),
       row("Safety response", labelOf(SAFETY, visit.safety)),
+      row("Voice recordings", visit.audio === "yes" ? String(Object.keys(visit.recordings).length) : "Not consented"),
       field("Follow-up", radios("followup", [["yes", "Flag for trained health professional follow-up"],
         ["no", "No follow-up requested in this demo"]], visit.followup ? "yes" : "no", (v) => { visit.followup = v === "yes"; })),
     ];
@@ -613,26 +845,100 @@ const screens = {
       const facts = [["Case", c.case_id], ["Status", c.status], ["Urgent-review flag", c.urgent_review_flag ? "Raised" : "Not raised"],
         ["Follow-up requested", c.follow_up_requested ? "Yes" : "No"],
         ["Patient card code (give to the person for clinic visits)", entry.card || "—"]];
+      if (entry.ops.some((o) => o.audio)) facts.push(["Voice recording", entry.voiceProblem ? "Not uploaded" : "Uploaded"]);
       for (const [k, v] of facts) {
         const d = raw("div", null, "summaryrow");
         d.append(raw("span", k), raw("code", String(v)));
         nodes.push(d);
       }
-    } else if (entry && entry.status === "failed") {
+      if (entry.voiceProblem) {
+      nodes.push(raw("div", `The voice recording was not uploaded (${entry.voiceProblem}) and was deleted from this device. `
+        + "The rest of the visit is saved.", "notice"));
+    }
+  } else if (entry && entry.status === "failed") {
       box.append(raw("div", "!", "mark bad"), raw("h2", "Not saved"), raw("p", `The server refused it (${entry.problem}).`));
       if (entry.urgent) {
         nodes.push(el("div", "This visit had a self-harm answer of 'sometimes' or 'often' and it was NOT saved, so no "
           + "urgent-review flag was raised. Contact your supervisor now.", "alert"));
       }
     } else {
-      box.append(raw("div", "⇅", "mark wait"), raw("h2", "Saved for sync"),
-        raw("p", "Kept in this page's memory until you sync. Reloading or closing the page discards it."));
+      box.append(raw("div", "⇅", "mark wait"), raw("h2", "Saved for sync"), raw("p", offline.session
+        ? "Stored encrypted on this device until it syncs. It stays if the page is closed or the phone restarts."
+        : "Kept in this page's memory until you sync. Reloading or closing the page discards it."));
     }
     nodes.push(actions(button("Start another assessment", () => { visit = newVisit(); go("registration"); }, "full"),
       button("Back to dashboard", () => go("home"), "secondary")));
     return nodes;
   },
 };
+
+let stopMicrophone = null;
+let playbackUrls = [];
+
+/** Stops a running recording and throws its samples away. */
+function cancelMicrophone() {
+  if (!stopMicrophone) return;
+  const stop = stopMicrophone;
+  stopMicrophone = null;
+  stop().catch(() => {});
+}
+
+function revokePlayback() {
+  for (const u of playbackUrls) URL.revokeObjectURL(u);
+  playbackUrls = [];
+}
+function recordButton(promptId, done) {
+  if (!settings.microphone) {
+    return button(done ? "Record again (synthetic)" : "Record (synthetic test voice)",
+      () => keepRecording(promptId, Voice.synthetic(SYNTHETIC_SECONDS), "SYNTHETIC"), "secondary");
+  }
+  if (stopMicrophone && stopMicrophone.promptId === promptId && stopMicrophone.participant === visit.ids.participant) {
+    return button("Stop recording", async () => {
+      const stop = stopMicrophone;
+      stopMicrophone = null;
+      const pcm = await stop();
+      if (!visit || visit.ids.participant !== stop.participant || visit.audio !== "yes") return; // never another visit's
+      await keepRecording(promptId, pcm, "AUTHORIZED_TEST_AUDIO");
+    });
+  }
+  return button(done ? "Record again" : "Start recording", async () => {
+    if (stopMicrophone) return warn("Stop the other recording first.");
+    try {
+      stopMicrophone = await Voice.microphone();
+      stopMicrophone.promptId = promptId;
+      stopMicrophone.participant = visit.ids.participant; // the recording belongs to this visit only
+      render();
+    } catch (e) {
+      warn(`The microphone could not be used (${e.message}).`);
+    }
+  }, "secondary");
+}
+
+async function keepRecording(promptId, pcm, origin) {
+  let rec;
+  try {
+    rec = await Voice.recording(pcm);
+  } catch (e) {
+    return warn(e.message);
+  }
+  const previous = visit.recordings[promptId];
+  if (previous) await dropAudio([previous.recordingId]);
+  // One session has one data origin, so a visit never mixes synthetic and real recordings (review B2).
+  const others = Object.entries(visit.recordings).filter(([id, r]) => id !== promptId && r.origin !== origin);
+  if (others.length) {
+    await dropAudio(others.map(([, r]) => r.recordingId));
+    for (const [id] of others) delete visit.recordings[id];
+    ui.message = "The microphone setting changed, so the earlier recordings for this visit were deleted. Record them again.";
+  }
+  const recordingId = randomId("rec");
+  visit.ids.session = visit.ids.session || randomId("sess");
+  audio.set(recordingId, rec.bytes);
+  if (offline.session) await offline.session.put("audio:" + recordingId, rec.bytes).catch(storageFailed);
+  visit.recordings[promptId] = { recordingId, seconds: rec.seconds, sha256: rec.sha256, size: rec.bytes.length,
+    recordedAt: isoNow(), origin };
+  await persistVisit();
+  render();
+}
 
 function listScreen(followUpsOnly) {
   const nodes = [raw("p", "Names and villages are not shown: they are stored write-only in the identity store.", "small")];
@@ -690,7 +996,10 @@ let contacts = [];
 async function loadContacts() {
   try {
     const r = await api("GET", "/v1/programme/support-contacts");
-    if (r.status === 200) contacts = r.data.contacts;
+    if (r.status === 200) {
+      contacts = r.data.contacts;
+      if (offline.session) await offline.session.put("contacts", contacts); // at hand after a reload offline
+    }
   } catch (e) {
     contacts = []; // offline at login: the alert still tells the worker to contact their supervisor
   }
@@ -775,19 +1084,215 @@ async function openList(page) {
 }
 
 async function save() {
-  const entry = { ops: operations(visit, isoNow()), next: 0, status: "pending", problem: null, result: null,
-    urgent: URGENT.includes(visit.safety) }; // kept even when the answers are dropped
+  const entry = { id: randomId("ob"), savedAt: isoNow(), ops: operations(visit, isoNow()), next: 0, status: "pending",
+    problem: null, result: null, urgent: URGENT.includes(visit.safety) }; // kept even when the answers are dropped
   outbox.push(entry);
   ui.lastEntry = entry;
+  revokePlayback();
   visit = null; // the outbox entry now holds the only copy
+  await persistEntry(entry);
   go("complete");
   if (ui.online) await flush();
 }
 
 async function sync() {
-  if (!ui.online) return warn("No connection simulated. Record remains pending sync.");
+  if (!ui.online) return warn("No connection. Records remain pending sync.");
   if (!pendingCount()) return warn("Nothing to sync.");
   await flush();
+}
+
+// --- offline mode (ADR-017) -------------------------------------------------------------
+
+/** Saves the visit in progress (or removes it) when offline mode is on. Never throws into the UI flow. */
+function persistVisit() {
+  if (!offline.session) return Promise.resolve();
+  const s = offline.session;
+  return (visit ? s.put("visit", visit) : s.delete("visit")).catch(storageFailed);
+}
+
+function persistEntry(entry) {
+  if (!offline.session) return Promise.resolve();
+  return offline.session.put("entry:" + entry.id, entry).catch(storageFailed);
+}
+
+function storageFailed(e) {
+  ui.message = `Could not save on this device (${e.message}). Sync as soon as you can.`;
+}
+
+/** Loads the unlocked store into memory, dropping finished visits older than 7 days. */
+async function loadStore(session) {
+  offline.session = session;
+  outbox.length = 0;
+  for (const [id, entry] of await session.all("entry:")) {
+    if (entry.status !== "pending" && Date.now() - Date.parse(entry.savedAt) > KEEP_FINISHED_MS) {
+      await session.delete(id);
+    } else {
+      outbox.push(entry);
+    }
+  }
+  outbox.sort((a, b) => a.savedAt.localeCompare(b.savedAt));
+  visit = (await session.get("visit")) || null;
+  contacts = (await session.get("contacts")) || contacts;
+  // Audio saved just before a crash may have no visit or entry pointing at it (review I2).
+  const referenced = new Set([...outbox.filter((e) => e.status === "pending").flatMap(audioIds),
+    ...Object.values((visit && visit.recordings) || {}).map((r) => r.recordingId)]);
+  for (const id of await session.keys("audio:")) {
+    if (!referenced.has(id.slice("audio:".length))) await session.delete(id);
+  }
+  touch();
+}
+
+function touch() {
+  if (!offline.session) return;
+  clearTimeout(offline.idleTimer);
+  offline.idleTimer = setTimeout(lock, IDLE_LOCK_MS);
+}
+
+/** Drops the key and everything decrypted from memory. The data stays on the device, encrypted. */
+async function lock() {
+  if (!offline.session) return;
+  if (flushing) { touch(); return; } // never lock in the middle of a sync step
+  cancelMicrophone();
+  revokePlayback();
+  await persistVisit();
+  offline.session = null;
+  visit = null;
+  outbox.length = 0;
+  audio.clear();
+  ui.lastEntry = null;
+  offline.stores = await OfflineStore.list();
+  go("unlock", "Locked after 5 minutes without use. Enter your PIN to continue.");
+}
+
+function connectivityChanged() {
+  ui.online = navigator.onLine && !ui.forcedOffline;
+  render();
+  if (ui.online && pendingCount() && auth.token) flush();
+}
+
+/** Logging in reloads the page, so the visit in progress is saved first. Offline mode only. */
+async function loginToSync() {
+  if (!ui.online) return warn("No connection. Records remain pending sync.");
+  if (!offline.session) return warn("Log in to sync.");
+  await persistVisit();
+  login().catch((e) => warn(`Login failed: ${e.message}`));
+}
+
+/** The service worker caches the app's own files only. It's registered only while offline mode is in use. */
+async function registerShell() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register("sw.js", { scope: "/asha/" });
+  } catch (e) {
+    ui.message = `The app could not be prepared for offline use (${e.message}).`;
+  }
+  if (navigator.storage && navigator.storage.persist) {
+    await navigator.storage.persist().catch(() => false);
+    const est = await navigator.storage.estimate().catch(() => null);
+    offline.quota = est ? { used: est.usage, total: est.quota } : null;
+  }
+}
+
+async function unregisterShell() {
+  if (!("serviceWorker" in navigator)) return;
+  for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+  for (const k of await caches.keys()) await caches.delete(k);
+}
+
+async function enableOffline(pin, again) {
+  if (!auth.token) return warn("Log in first: offline mode is set up for your worker account.");
+  if (!OfflineStore.PIN_PATTERN.test(pin)) return warn("The PIN must be 6 to 12 digits.");
+  if (pin !== again) return warn("The two PINs do not match.");
+  try {
+    const session = await OfflineStore.create(auth.owner, pin);
+    offline.session = session;
+    for (const entry of outbox) {
+      entry.id = entry.id || randomId("ob");
+      entry.savedAt = entry.savedAt || isoNow();
+      await persistEntry(entry);
+    }
+    await persistVisit();
+    for (const [id, bytes] of audio) await session.put("audio:" + id, bytes);
+    if (contacts.length) await session.put("contacts", contacts);
+    touch();
+    await registerShell();
+    go("home");
+  } catch (e) {
+    warn(`Offline mode was not turned on: ${e.message}`);
+  }
+}
+
+async function disableOffline() {
+  const unsynced = pendingCount() + (visit ? 1 : 0);
+  if (unsynced && !confirm(`${unsynced} visit(s) have not synced and will be deleted from this device. Turn offline mode off anyway?`)) {
+    return;
+  }
+  await OfflineStore.remove(offline.session.owner);
+  offline.session = null;
+  clearTimeout(offline.idleTimer);
+  if (unsynced) {
+    outbox.length = 0;
+    visit = null;
+  }
+  offline.stores = await OfflineStore.list();
+  if (!offline.stores.length) await unregisterShell();
+  render();
+}
+
+async function unlockWith(owner, pin) {
+  try {
+    await loadStore(await OfflineStore.unlock(owner, pin));
+    await registerShell();
+    go(visit ? visit.page || "registration" : "home");
+    if (auth.token && ui.online && pendingCount()) flush();
+  } catch (e) {
+    if (e instanceof OfflineStore.WrongPin) {
+      warn(`Wrong PIN. ${e.remaining} attempt(s) left before this worker's offline data is deleted.`);
+    } else if (e instanceof OfflineStore.Wiped) {
+      offline.stores = await OfflineStore.list();
+      go(offline.stores.length ? "unlock" : auth.token ? "home" : "login", `${e.message}.`);
+    } else {
+      warn(`Could not unlock: ${e.message}`);
+    }
+  }
+}
+
+function offlineModeBox() {
+  const box = raw("div", null, "sidebox");
+  if (offline.session) {
+    const used = offline.quota ? ` · ${(offline.quota.used / 1048576).toFixed(1)} MB used on this device` : "";
+    box.append(raw("p", `Offline mode is on: visits are kept on this device, encrypted, until they sync${used}.`, "small"),
+      actions(button("Lock now", lock, "secondary"), button("Turn offline mode off", disableOffline, "secondary")));
+  } else if (auth.token) {
+    box.append(raw("p", "Offline mode is off: unsynced visits are lost if the page reloads.", "small"),
+      actions(button("Turn on offline mode", () => go("offlineSetup"), "secondary")));
+  }
+  return box;
+}
+
+async function start() {
+  try {
+    const r = await fetch("settings.json");
+    if (r.ok) settings.microphone = (await r.json()).microphone_enabled === true;
+  } catch (e) {
+    settings.microphone = false; // offline and not cached: the safe default
+  }
+  let loggedIn = false;
+  try {
+    loggedIn = await completeLogin();
+  } catch (e) {
+    ui.page = "login";
+    ui.message = `Login failed: ${e.message}`;
+    return;
+  }
+  offline.stores = await OfflineStore.list().catch(() => []);
+  if (loggedIn) {
+    loadContacts();
+    // A worker with offline data unlocks it first, so new and stored visits share one outbox.
+    ui.page = offline.stores.some((m) => m.owner === auth.owner) ? "unlock" : "home";
+  } else {
+    ui.page = "language";
+  }
 }
 
 // --- rendering -------------------------------------------------------------------------
@@ -822,7 +1327,8 @@ function render() {
 
 function updateSide() {
   const conn = $("connection");
-  conn.textContent = "● " + t(ui.online ? "Internet available" : "Offline — save for later").text;
+  conn.textContent = "● " + t(ui.online ? "Internet available" : "Offline — save for later").text
+    + (offline.session ? " · offline mode" : "");
   conn.classList.toggle("online", ui.online);
   $("logout").hidden = !auth.token;
 
@@ -847,10 +1353,10 @@ function updateSide() {
 document.addEventListener("DOMContentLoaded", () => {
   $("logout").addEventListener("click", logout);
   window.addEventListener("beforeunload", (e) => {
-    if (visit || pendingCount()) e.preventDefault(); // unsynced data lives only in this page
+    if (!offline.session && (visit || pendingCount())) e.preventDefault(); // unsynced data lives only in this page
   });
-  completeLogin()
-    .then((loggedIn) => { ui.page = loggedIn ? "home" : "language"; if (loggedIn) loadContacts(); })
-    .catch((e) => { ui.page = "login"; ui.message = `Login failed: ${e.message}`; })
-    .finally(render);
+  window.addEventListener("online", connectivityChanged);
+  window.addEventListener("offline", connectivityChanged);
+  for (const type of ["pointerdown", "keydown"]) document.addEventListener(type, touch, { passive: true });
+  start().finally(render);
 });

@@ -202,6 +202,19 @@ Identity lookups (seeing a participant's name or phone) are a separate, audited 
 - Withdrawals captured offline sync with the **highest priority**, ahead of other outbox items.
 - When the server rejects an item for consent reasons, the app deletes the local audio for that item.
 - **Lost or stolen device:** the IdP session is revoked and the data stays encrypted at rest. Remote wipe is **[OPEN]**.
+- **As built** (ADR-017, synthetic data only):
+
+  | | Web app, offline mode on | Android app |
+  |---|---|---|
+  | Where | IndexedDB, one store per worker | SQLCipher database per worker, no-backup storage |
+  | Key | Random AES-256-GCM key wrapped by the worker's PIN (PBKDF2-SHA-256, 600k) | Random key wrapped by the PIN, then by an Android Keystore key |
+  | What is stored | Visit in progress, outbox entries (names until the identity step succeeds), recordings | Same |
+  | Never stored | Tokens | Tokens |
+  | Lock | 5 min idle | 5 min idle and on going to the background; screenshots blocked |
+  | Wrong PIN | 5 attempts, then that worker's store is deleted | Same |
+  | Deleted when | Identity: when stored. Answers: when the visit is done or refused. Audio: when the server confirms `STORED` with the same checksum, or on any voice refusal. Finished entries: after 7 days | Same |
+
+  With offline mode off, the web app keeps everything in page memory only, as before. **Not yet built:** capturing withdrawals offline, so the "withdrawals sync first" rule above does not apply yet.
 
 ---
 

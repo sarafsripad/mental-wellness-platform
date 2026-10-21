@@ -56,3 +56,4 @@ footer{max-width:980px;margin:0 auto 24px;padding:0 14px;font-size:12px;color:va
 [hidden]{display:none!important}
 @media(max-width:740px){main{display:block;margin:12px auto}.phone{min-height:unset}aside{margin-top:12px;display:grid;grid-template-columns:1fr 1fr}.content{padding:17px}.top{padding:15px 17px}.cards{grid-template-columns:1fr}}
 @media(max-width:420px){aside{grid-template-columns:1fr}}
+.sidebox{margin-top:14px;padding:10px 12px;border:1px solid var(--line);border-radius:12px}

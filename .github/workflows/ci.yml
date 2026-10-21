@@ -96,6 +96,33 @@ jobs:
           name: wellness-api-test-reports
           path: workstream-a/backend/wellness-api/build/reports/tests/
 
+  mobile:
+    name: ASHA mobile app (type-check, lint, unit tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workstream-a/mobile/asha-care
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: workstream-a/mobile/asha-care/package-lock.json
+
+      - name: Install (exact versions from the lock file)
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests (outbox, consent gate, shared strings, contract samples)
+        run: npx jest --ci
+
   worker:
     name: Processing worker (Python + openSMILE)
     runs-on: ubuntu-latest

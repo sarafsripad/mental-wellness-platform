@@ -3,7 +3,7 @@
 **Date:** 2026-10-17
 **Context document:** [solution-architecture.md](solution-architecture.md)
 
-This log holds ADR-003 to ADR-016. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
+This log holds ADR-003 to ADR-017. ADR-001 and ADR-002 are separate files, and future ADRs may be added here or as separate files using [ADR-000-template.md](ADR-000-template.md).
 
 | ADR | Title | Status |
 |---|---|---|
@@ -23,6 +23,7 @@ This log holds ADR-003 to ADR-016. ADR-001 and ADR-002 are separate files, and f
 | [014](#adr-014-clinician-review-of-flagged-cases) | Clinician review of flagged cases | ACCEPTED for synthetic data (repository owner, 2026-10-19); clinical lead review pending |
 | [015](#adr-015-partner-programme-integration-simulated-only) | Partner programme integration (simulated only) | ACCEPTED for synthetic data and simulated partners (repository owner, 2026-10-20); agreements, legal and clinical review pending |
 | [016](#adr-016-care-teams-and-clinic-staff-access) | Care teams and clinic staff access | ACCEPTED for synthetic data (repository owner, 2026-10-20); phases 1–5 built; privacy, clinical and legal review pending |
+| [017](#adr-017-offline-asha-apps-web-offline-mode-and-android-with-voice-capture) | Offline ASHA apps (web offline mode and Android) with voice capture | ACCEPTED for synthetic data (repository owner, 2026-10-20); privacy review pending |
 
 Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means a decision the repository owner explicitly made in this session. No ADR here is approved for clinical use.
 
@@ -180,7 +181,7 @@ Status meanings: *PROPOSED* means written and awaiting review. *ACCEPTED* means 
 - *Positive:* safe retries; predictable conflicts; no data loss on restart.
 - *Negative:* the server must keep idempotency keys for at least 30 days. A session captured offline after a withdrawal on another channel is rejected and its audio discarded, so the worker loses effort. That is correct, and the app must explain it. Mutable-record conflicts need a resolution screen.
 
-**Unresolved.**
+**Unresolved.** All three items below are resolved by [ADR-017](#adr-017-offline-asha-apps-web-offline-mode-and-android-with-voice-capture):
 - Maximum offline period before re-authentication.
 - How shared devices separate worker data.
 - Whether consent forms can be updated while devices are offline (forms are pinned by version).
@@ -502,3 +503,100 @@ Accepted for now, open:
 - Staff can withdraw consent that an ASHA worker recorded (programme).
 - Nothing checks that the notes key differs from the identity key.
 
+---
+
+## ADR-017: Offline ASHA apps (web offline mode and Android) with voice capture
+
+**Context.** The ASHA web app kept unsent visits only in page memory, so a reload, a flat battery or an expired login lost them. CLAUDE.md, ADR-003 and ADR-008 promise an offline-first mobile client, and voice capture existed only in the dev console. On 2026-10-20 the repository owner decided to build both:
+- an **offline-mode toggle** in the web app
+- a **React Native Android app** in parallel
+- **voice recording** in both
+
+**Decision.**
+- **Consent.** Form `asha-wellness-consent` 0.3.0 adds a separate, optional `AUDIO_RECORDING` question, seeded in all 12 languages. Version 0.2.0 stays valid. There is no new scope.
+- **The consent gate.** A recording control exists only when the visit's consent granted audio, and the voice API calls are built only then. The server still rechecks `AUDIO_RECORDING` on every voice call, including at upload.
+- **Web offline mode** (`/asha/`, off by default; off means memory only, exactly as before):
+  - `store.js` keeps the visit in progress, the outbox and recordings in IndexedDB.
+  - Every record is AES-256-GCM encrypted under a random data key, which a PIN-derived key wraps (PBKDF2-SHA-256, 600,000 iterations).
+  - Each record has a fresh IV, and its ID is bound in as associated data.
+  - Each worker has a separate key and separate records, labelled by a hash of their subject.
+  - Only `store.js` touches device storage.
+- **Android app** (`workstream-a/mobile/asha-care`, React Native 0.87.1, always offline-first):
+  - One SQLCipher database per worker.
+  - Its key is wrapped by the PIN (PBKDF2) and then by an Android Keystore key, in no-backup storage.
+  - Backups and device transfer are off, and `FLAG_SECURE` blocks screenshots.
+  - Two approved runtime libraries: op-sqlite 18.2.5 and react-native-app-auth 8.5.0. Key wrapping, the recorder, random IDs and the audio upload are the app's own Kotlin module.
+  - It uses the existing Keycloak client `wellness-mobile`.
+- **Both clients:**
+  - The app locks after 5 minutes idle. The Android app also locks on going to the background.
+  - 5 wrong PINs delete that worker's store.
+  - **No token is ever stored**: the PIN unlocks offline capture, and only a fresh login syncs.
+  - Sync runs only for the store's own worker, and unlock offers a logged-in worker only their own store.
+- **Outbox** (ADR-008, same steps in both clients):
+  - Progress is saved after each confirmed step, with back-off from 30 s to 15 min.
+  - Voice steps come last and are optional. A refusal, for example `CONSENT_NOT_ACTIVE` after a withdrawal, deletes the audio and keeps the visit.
+  - Audio is deleted only when the server reports `STORED` with the same SHA-256.
+  - Finished entries are pruned after 7 days.
+- **Microphone off by default** (`wellness.asha-app.microphone-enabled` / `-PashaMicrophoneEnabled`):
+  - When off, the apps record a generated synthetic voice labelled `SYNTHETIC`.
+  - Microphone recordings are labelled `AUTHORIZED_TEST_AUDIO` and are accepted only where the server allows that origin.
+  - The worker never sees any voice result.
+- **Web shell:**
+  - A service worker caches only the app's own files and never answers API or login traffic.
+  - The CSP adds `worker-src`, `manifest-src` and `media-src blob:`.
+  - `Permissions-Policy` allows only the microphone.
+
+**Resolves ADR-008's open items:**
+- **Offline period:** capture is unlimited and sync needs a fresh login. A warning appears after 3 days unsynced.
+- **Shared devices:** a separate key and store for each worker.
+- **Forms offline:** the app pins its form version, and the server validates it at sync.
+
+**Tests.**
+- Backend: consent 0.3.0 with audio granted, refused and missing; the CSP and `Permissions-Policy` headers; settings; static checks on `store.js` and `sw.js`.
+- Browser tests (Playwright with Chrome), 6 tests:
+  - offline capture → reload → unlock → sync exactly once
+  - wrong-PIN wipe
+  - off-mode stores nothing
+  - shared device
+  - voice stored and then deleted
+  - a withdrawal before sync deletes the audio
+- Mutation checks on worker separation and on the voice consent gate both failed the tests, as intended.
+- Mobile Jest: 15 tests. The mobile request bodies are validated against OpenAPI (11).
+
+**Security review (2026-10-21).** It found two blockers, both affecting only microphone-enabled builds (off by default). Fixed:
+- **B1:** a recording left running is cancelled whenever its screen, visit or worker changes, and it is tied to its visit. A browser test with a fake microphone covers this.
+- **B2:** a session holding any microphone recording is labelled `AUTHORIZED_TEST_AUDIO`, and a visit never mixes origins. Tests cover this on web and mobile.
+
+Warnings fixed:
+- a missing recording no longer blocks later visits (web)
+- keyboards can't learn names: autocorrect and suggestions are off
+- playback URLs are revoked
+- unlock attempts are serialised, across tabs too
+
+Info items fixed:
+- orphaned audio is swept on unlock, and on Android the visit is saved before anything else happens
+- the native upload sends only to the build's API content path and always settles
+- the web client lost the unused `voice:read` and `processing:read` scopes
+- `Permissions-Policy` allows the microphone only when the flag is on
+- a background lock during a sync takes effect as soon as the current step ends
+- the service worker caches only the app page itself as the shell
+
+Accepted and open:
+- **Offline PIN guessing.** Anyone holding a copy of the stored data can try every PIN without the 5-attempt limit applying. Six digits plus PBKDF2 is weak against a GPU. On Android the Keystore key has no device-unlock requirement. Privacy-lead decision.
+- **The final step deletes all audio.** At the end of a visit the outbox deletes every recording, relying on the server answering 2xx only after a verified `STORED`.
+- **Delete without login.** "Forgotten PIN" deletion works without a login, by design.
+- **Keys in JS memory.** The SQLCipher key passes through JavaScript as a string.
+- **Release signing.** Release builds use the debug keystore, and release is out of scope.
+
+**Unresolved.**
+- **Privacy lead:**
+  - the real microphone
+  - offline retention on devices
+  - remote wipe and device management
+  - whether a PIN plus the Keystore is enough, or device credentials should also be required
+- **Withdrawals:** the clients do not capture withdrawals offline yet, so §10's "withdrawals sync first" rule is not implemented.
+- **iOS:** not built; it needs a newer Mac.
+- **Android:** background sync while the app is closed is not built, and play-store release is out of scope.
+- **Android testing:** there is no automated device test yet, and the manual emulator run isn't done.
+  - The debug APK builds (React Native 0.87.1, SQLCipher compiled in, own TurboModule), installs and starts on an Android 16 emulator.
+  - On the development Mac, the emulator next to Docker ran out of memory before the first screen ("system not responding"). It needs a machine with more memory, or a real phone.

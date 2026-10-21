@@ -13,6 +13,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -34,12 +35,16 @@ class AshaAppConfig implements WebMvcConfigurer {
 
 	private final String keycloak;
 
+	private final boolean microphone;
+
 	AshaAppConfig(@Value("${wellness.data.allowed-origins}") Set<String> allowedOrigins,
-			@Value("${wellness.asha-app.keycloak-origin:http://localhost:8081}") String keycloak) {
+			@Value("${wellness.asha-app.keycloak-origin:http://localhost:8081}") String keycloak,
+			@Value("${wellness.asha-app.microphone-enabled:false}") boolean microphone) {
 		if (allowedOrigins.contains("PARTICIPANT")) {
 			throw new IllegalStateException("The ASHA test app may not run in an environment that accepts PARTICIPANT data");
 		}
 		this.keycloak = keycloak;
+		this.microphone = microphone;
 	}
 
 	@Override
@@ -57,16 +62,20 @@ class AshaAppConfig implements WebMvcConfigurer {
 	@Bean
 	@Order(2)
 	SecurityFilterChain ashaAppSecurity(HttpSecurity http) throws Exception {
+		// worker-src and manifest-src for the offline mode; media-src for playing back a recording (ADR-017).
 		String csp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
 				+ "connect-src 'self' " + this.keycloak + "; form-action " + this.keycloak + "; base-uri 'none'; "
-				+ "frame-ancestors 'none'";
+				+ "frame-ancestors 'none'; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:";
 		http.securityMatcher("/asha", "/asha/**")
 			.authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.csrf(csrf -> csrf.disable())
 			.requestCache(cache -> cache.disable())
 			.headers(h -> h.contentSecurityPolicy(c -> c.policyDirectives(csp))
-				.referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)));
+				.referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+				// The page may use the microphone only where its use is approved (ADR-017).
+				.addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", (this.microphone ? "microphone=(self)" : "microphone=()")
+						+ ", camera=(), geolocation=(), payment=(), usb=()")));
 		return http.build();
 	}
 

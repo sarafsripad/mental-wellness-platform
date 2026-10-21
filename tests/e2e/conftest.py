@@ -59,8 +59,19 @@ def iso(dt):
 
 
 class Http:
+    """Calls the API as one user. Given a function, it re-mints the token before Keycloak's 5-minute
+    expiry, so a long run (for example with the browser tests) never fails on a stale token."""
+
     def __init__(self, token):
-        self.token = token
+        self._mint = token if callable(token) else None
+        self._token = None if callable(token) else token
+        self._minted = 0.0
+
+    @property
+    def token(self):
+        if self._mint and (self._token is None or time.monotonic() - self._minted > 240):
+            self._token, self._minted = self._mint(), time.monotonic()
+        return self._token
 
     def call(self, method, path, body=None, headers=None, raw=None, content_type="application/json"):
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
@@ -92,18 +103,18 @@ def secrets_env():
 
 @pytest.fixture(scope="session")
 def asha(secrets_env):
-    return Http(token(grant_type="password", client_id="wellness-e2e", client_secret=secrets_env["E2E_CLIENT_SECRET"],
+    return Http(lambda: token(grant_type="password", client_id="wellness-e2e", client_secret=secrets_env["E2E_CLIENT_SECRET"],
                       username="asha.test1", password=secrets_env["KEYCLOAK_TEST_USER_PASSWORD"]))
 
 
 @pytest.fixture(scope="session")
 def clinician(secrets_env):
-    return Http(token(grant_type="password", client_id="wellness-e2e", client_secret=secrets_env["E2E_CLIENT_SECRET"],
+    return Http(lambda: token(grant_type="password", client_id="wellness-e2e", client_secret=secrets_env["E2E_CLIENT_SECRET"],
                       username="clinician.test1", password=secrets_env["KEYCLOAK_TEST_USER_PASSWORD"]))
 
 
 def staff(secrets_env, username):
-    return Http(token(grant_type="password", client_id="wellness-e2e", client_secret=secrets_env["E2E_CLIENT_SECRET"],
+    return Http(lambda: token(grant_type="password", client_id="wellness-e2e", client_secret=secrets_env["E2E_CLIENT_SECRET"],
                       username=username, password=secrets_env["KEYCLOAK_TEST_USER_PASSWORD"]))
 
 

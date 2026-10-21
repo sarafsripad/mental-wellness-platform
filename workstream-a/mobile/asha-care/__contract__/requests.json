@@ -1,0 +1,210 @@
+[
+ {
+  "operation_id": "createConsentEvent",
+  "method": "POST",
+  "path": "/v1/consent-events",
+  "request": {
+   "consent_event_id": "ce_00000000000000000000000000000002",
+   "participant_ref": "ppt_00000000000000000000000000000001",
+   "consent_form": {
+    "form_id": "asha-wellness-consent",
+    "form_version": "0.3.0",
+    "language_tag": "kn-IN"
+   },
+   "scope_decisions": [
+    {
+     "scope": "SCREENING_PARTICIPATION",
+     "granted": true
+    },
+    {
+     "scope": "EXTERNAL_REFERRAL_SHARING",
+     "granted": false
+    },
+    {
+     "scope": "AUDIO_RECORDING",
+     "granted": true
+    }
+   ],
+   "capture": {
+    "captured_at_utc": "2026-10-20T08:00:00Z",
+    "method": "VERBAL_WITNESSED",
+    "read_aloud": true,
+    "comprehension_confirmed": true,
+    "witness_present": true
+   },
+   "safeguards": {
+    "adult_confirmed": true
+   }
+  }
+ },
+ {
+  "operation_id": "createCase",
+  "method": "POST",
+  "path": "/v1/cases",
+  "request": {
+   "case_id": "case_00000000000000000000000000000003",
+   "participant_ref": "ppt_00000000000000000000000000000001",
+   "consent_event_id": "ce_00000000000000000000000000000002",
+   "language_tag": "kn-IN",
+   "opened_at_utc": "2026-10-20T08:00:00Z",
+   "data_origin": "SYNTHETIC",
+   "age_band": "AGE_30_44",
+   "gender": "FEMALE"
+  }
+ },
+ {
+  "operation_id": "putParticipantIdentity",
+  "method": "PUT",
+  "path": "/v1/participants/ppt_00000000000000000000000000000001/identity",
+  "request": {
+   "consent_event_id": "ce_00000000000000000000000000000002",
+   "data_origin": "SYNTHETIC",
+   "display_name": "Synthetic Mobile Alpha",
+   "village_name": "Testgrama-90"
+  }
+ },
+ {
+  "operation_id": "submitObservations",
+  "method": "POST",
+  "path": "/v1/cases/case_00000000000000000000000000000003/observations",
+  "request": {
+   "observation_set_id": "obs_00000000000000000000000000000004",
+   "catalogue": {
+    "catalogue_id": "asha-observations",
+    "catalogue_version": "0.1.0"
+   },
+   "observed_at_utc": "2026-10-20T08:05:00Z",
+   "observations": [
+    {
+     "code": "HEALTH_CONDITION",
+     "value_code": "NONE_REPORTED"
+    },
+    {
+     "code": "TOBACCO_USE",
+     "value_code": "NOT_REPORTED"
+    },
+    {
+     "code": "ALCOHOL_USE",
+     "value_code": "NOT_REPORTED"
+    },
+    {
+     "code": "SLEEP_QUALITY",
+     "value_code": "GOOD"
+    }
+   ]
+  }
+ },
+ {
+  "operation_id": "submitQuestionnaireResponse",
+  "method": "POST",
+  "path": "/v1/cases/case_00000000000000000000000000000003/questionnaire-responses",
+  "request": {
+   "response_id": "qr_00000000000000000000000000000005",
+   "instrument": {
+    "instrument_id": "illustrative-wellness",
+    "instrument_version": "0.1.0"
+   },
+   "language_tag": "kn-IN",
+   "answered_at_utc": "2026-10-20T08:06:00Z",
+   "items": [
+    {
+     "item_id": "ANXIETY",
+     "answer_code": "NOT_AT_ALL"
+    },
+    {
+     "item_id": "LOW_MOOD",
+     "answer_code": "SEVERAL_DAYS"
+    },
+    {
+     "item_id": "INTEREST",
+     "answer_code": "AS_USUAL"
+    },
+    {
+     "item_id": "SELF_HARM_THOUGHTS",
+     "answer_code": "NO"
+    }
+   ]
+  }
+ },
+ {
+  "operation_id": "completeCase",
+  "method": "POST",
+  "path": "/v1/cases/case_00000000000000000000000000000003/completion",
+  "request": {
+   "completed_at_utc": "2026-10-20T08:10:00Z",
+   "follow_up_requested": true
+  }
+ },
+ {
+  "operation_id": "createVoiceSession",
+  "method": "POST",
+  "path": "/v1/voice-sessions",
+  "request": {
+   "session_id": "sess_00000000000000000000000000000006",
+   "participant_ref": "ppt_00000000000000000000000000000001",
+   "consent_event_id": "ce_00000000000000000000000000000002",
+   "language_tag": "kn-IN",
+   "prompt_set": {
+    "prompt_set_id": "baseline-voice-tasks",
+    "prompt_set_version": "0.1.0"
+   },
+   "captured_at_utc": "2026-10-20T08:07:00Z",
+   "device": {
+    "device_class": "ANDROID_PHONE",
+    "app_version": "0.3.0",
+    "os_family": "ANDROID"
+   },
+   "data_origin": "SYNTHETIC"
+  }
+ },
+ {
+  "operation_id": "submitRecordingMetadata",
+  "method": "POST",
+  "path": "/v1/voice-sessions/sess_00000000000000000000000000000006/recordings",
+  "request": {
+   "recording_id": "rec_00000000000000000000000000000007",
+   "prompt_id": "sustained-vowel-a",
+   "format": "WAV_PCM_S16LE",
+   "sampling_rate_hz": 16000,
+   "channels": 1,
+   "duration_seconds": 6,
+   "size_bytes": 192044,
+   "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "recorded_at_utc": "2026-10-20T08:07:00Z"
+  }
+ },
+ {
+  "operation_id": "submitProcessingJob",
+  "method": "POST",
+  "path": "/v1/processing-jobs",
+  "request": {
+   "recording_id": "rec_00000000000000000000000000000007",
+   "pipeline_profile": "EGEMAPS_V02_FUNCTIONALS_V1"
+  }
+ },
+ {
+  "operation_id": "submitRecordingMetadata",
+  "method": "POST",
+  "path": "/v1/voice-sessions/sess_00000000000000000000000000000006/recordings",
+  "request": {
+   "recording_id": "rec_00000000000000000000000000000008",
+   "prompt_id": "counting-one-to-ten",
+   "format": "WAV_PCM_S16LE",
+   "sampling_rate_hz": 16000,
+   "channels": 1,
+   "duration_seconds": 6,
+   "size_bytes": 192044,
+   "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "recorded_at_utc": "2026-10-20T08:08:00Z"
+  }
+ },
+ {
+  "operation_id": "submitProcessingJob",
+  "method": "POST",
+  "path": "/v1/processing-jobs",
+  "request": {
+   "recording_id": "rec_00000000000000000000000000000008",
+   "pipeline_profile": "EGEMAPS_V02_FUNCTIONALS_V1"
+  }
+ }
+]

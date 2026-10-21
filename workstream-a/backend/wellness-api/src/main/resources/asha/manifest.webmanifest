@@ -1,0 +1,11 @@
+{
+  "name": "ASHA Care (local test build)",
+  "short_name": "ASHA Care",
+  "description": "Synthetic test data only. Field-worker app for community wellness visits.",
+  "start_url": "/asha/",
+  "scope": "/asha/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#153b5b",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

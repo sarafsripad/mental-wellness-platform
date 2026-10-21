@@ -172,7 +172,20 @@ With the stack and API running, open **http://localhost:8080/asha/** and log in 
 - Translations are unreviewed prototype translations. Text marked `EN` has none and is shown in English.
 - Free-text notes are disabled.
 - The API accepts `SYNTHETIC` data only.
-- "Offline" mode keeps unsynced visits in page memory only, so reloading the page discards them.
+
+**Offline mode and voice** ([ADR-017](docs/architecture/architecture-decisions.md#adr-017-offline-asha-apps-web-offline-mode-and-android-with-voice-capture)):
+- **Off by default.** With offline mode off, unsynced visits live in page memory, and reloading the page discards them.
+- **Turning it on.** On the home screen choose **Turn on offline mode** and set a 6–12 digit PIN. Visits are then kept on the device, encrypted under that PIN, until they sync. This survives reloads and closing the browser.
+  - The app locks after 5 minutes idle.
+  - 5 wrong PINs delete that worker's stored visits.
+  - Tokens are never stored, so log in again to sync.
+- **Voice.** Consent form 0.3.0 adds an optional voice question. If the person agrees, a **Voice recording** step follows the safety check.
+  - The microphone is off unless `WELLNESS_ASHA_APP_MICROPHONE_ENABLED=true`, which needs privacy-lead approval. Until then the step records a generated synthetic voice.
+  - No voice result is ever shown.
+
+### ASHA Care Android app (local only, synthetic data)
+
+[workstream-a/mobile/asha-care](workstream-a/mobile/asha-care/README.md) is the React Native version. It has the same flow and API calls, and it is offline-first: every visit is stored in an encrypted SQLCipher database (PIN plus Android Keystore). The README covers the toolchain, tests and running it on an emulator against the local stack.
 
 ### Clinician review dashboard (local only, synthetic data)
 
@@ -206,8 +219,10 @@ With the local stack, the API and the worker running:
 cd deploy/local && ./up.sh                                      # 1. infrastructure
 workstream-a/backend/wellness-api/run-local.sh                  # 2. API (own terminal)
 workstream-a/processing-worker/run-local.sh                     # 3. worker (own terminal)
-python3 -m pytest tests/e2e -q                                  # 4. 17 end-to-end tests
+python3 -m pytest tests/e2e -q                                  # 4. end-to-end tests
 ```
+
+The browser tests of the ASHA app's offline mode (`tests/e2e/test_asha_offline_browser.py`) also need `pip install -r requirements-browser.txt` and Google Chrome. They skip without Playwright.
 
 These tests drive synthetic participants through consent, upload, openSMILE processing, export and Workstream B ingest, then check the results in the database, storage and logs. Research exports are made with `workstream-a/backend/wellness-api/run-export.sh`; see [workstream-b/research-pipeline](workstream-b/research-pipeline/README.md).
 

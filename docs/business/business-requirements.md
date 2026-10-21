@@ -111,6 +111,11 @@ flowchart LR
   H --> S[Save: sent to the server now,<br/>or queued for later if offline]
 ```
 
+**Offline (ADR-017), built for synthetic data:**
+- The web app has an optional offline mode, which keeps visits encrypted on the device under the worker's PIN.
+- The Android app (`workstream-a/mobile/asha-care`) is always offline-first.
+- Both keep unsent visits through reloads and restarts, and send each one exactly once after login.
+
 ### 7.2 Clinician review — ✅ Built
 Flagged visits (an urgent safety answer, or the worker's follow-up request) go to a queue, urgent first. The clinician reads the coded answers, which are marked **not validated**, and records a decision: no further action, monitor, refer, or urgent referral, each with a timeframe. The worker sees the decision in their Follow-ups list and contacts the person.
 
@@ -128,7 +133,9 @@ Withdrawal can be partial or complete, and it cascades to dependent permissions.
 A person runs the report. It holds counts by age group and gender, with 1–4 shown as `<5`. Mapping to the state's HMIS format is ⛔ blocked on the programme providing that format.
 
 ### 7.6 Voice research — ✅ Built (synthetic audio only)
-Voice is recorded with consent, quality-checked, and its features extracted on the application side. Features reach research only through a human-triggered, consent-filtered, re-keyed export.
+Voice is recorded with consent, quality-checked, and its features extracted on the application side.
+
+Both ASHA apps record voice during the visit only when the person answers yes to the separate audio question (consent form 0.3.0). They record a generated synthetic voice until the privacy lead approves the real microphone. Features reach research only through a human-triggered, consent-filtered, re-keyed export.
 
 ## 8. Functional requirements
 
